@@ -1,4 +1,4 @@
-.
+../rezero/backend/
 ├── app.js
 ├── bin
 │   └── www
@@ -63,10 +63,7 @@
 │   │   ├── room
 │   │   │   ├── controller.js
 │   │   │   ├── dto
-│   │   │   │   ├── createRoomRequestDto.js
-│   │   │   │   ├── joinRoomRequestDto.js
 │   │   │   │   ├── loginRequestDto.js
-│   │   │   │   ├── roomResponseDto.js
 │   │   │   │   ├── signupRequestDto.js
 │   │   │   │   └── userResponseDto.js
 │   │   │   ├── model.js
@@ -113,14 +110,17 @@
 │   │       └── redisService.js
 │   ├── manage
 │   ├── manageroom
+│   ├── manageRoom
 │   │   ├── manageRoomConfig.js
 │   │   ├── manageRoomController.js
 │   │   ├── manageRoomDto.js
+│   │   ├── manageRoomHandler.js
 │   │   └── manageRoomService.js
 │   ├── middleware
 │   │   ├── auth.js
 │   │   ├── errorHandler.js
 │   │   ├── logger.js
+│   │   ├── manageRoomMiddleware.js
 │   │   ├── parsing.js
 │   │   └── socketMiddleware.js
 │   ├── sockets
@@ -135,9 +135,9 @@
 ├── testAuth.js
 ├── testDB.js
 ├── test.js
+├── testManageRoom.js
 ├── testRedis.js
-├── testRoom.js
 ├── testSocket.js
 └── testUserDb.js
 
-45 directories, 96 files
+46 directories, 95 files
