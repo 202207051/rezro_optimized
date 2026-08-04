@@ -80,15 +80,15 @@
 │   │       └── service.js
 │   ├── config
 │   │   ├── authConfig.js
+│   │   ├── constants
+│   │   │   ├── errorCode.js
+│   │   │   ├── gameStatus.js
+│   │   │   ├── socketEvents.js
+│   │   │   └── userRole.js
 │   │   ├── dbConfig.js
 │   │   ├── envConfig.js
 │   │   ├── redisConfig.js
 │   │   └── socketConfig.js
-│   ├── constants
-│   │   ├── errorCode.js
-│   │   ├── gameStatus.js
-│   │   ├── socketEvents.js
-│   │   └── userRole.js
 │   ├── db
 │   │   └── migrations
 │   │       ├── 001_create_os_db.sql
@@ -109,8 +109,11 @@
 │   │   └── redis
 │   │       └── redisService.js
 │   ├── manage
-│   ├── manageroom
 │   ├── manageRoom
+│   │   ├── gameStartConfig.js
+│   │   ├── gameStartController.js
+│   │   ├── gameStartDto.js
+│   │   ├── gameStartService.js
 │   │   ├── manageRoomConfig.js
 │   │   ├── manageRoomController.js
 │   │   ├── manageRoomDto.js
@@ -119,6 +122,7 @@
 │   ├── middleware
 │   │   ├── auth.js
 │   │   ├── errorHandler.js
+│   │   ├── gameStartMiddleware.js
 │   │   ├── logger.js
 │   │   ├── manageRoomMiddleware.js
 │   │   ├── parsing.js
@@ -134,10 +138,11 @@
 │       └── responseHelper.js
 ├── testAuth.js
 ├── testDB.js
+├── testGameStart.js
 ├── test.js
 ├── testManageRoom.js
 ├── testRedis.js
 ├── testSocket.js
 └── testUserDb.js
 
-46 directories, 95 files
+45 directories, 101 files
