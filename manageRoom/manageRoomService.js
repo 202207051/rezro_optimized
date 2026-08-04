@@ -10,7 +10,7 @@ class ManageRoomService {
 
     // LIMIT ? 파라미터 바인딩 대신 안전하게 숫자 값을 직접 템플릿 리터럴로 대입
     const query = `
-      SELECT 
+      SELECT
         r.id,
         r.title,
         r.status,
@@ -25,7 +25,7 @@ class ManageRoomService {
         r.created_at,
         COUNT(rp.id) AS current_players
       FROM rooms r
-      LEFT JOIN room_participants rp 
+      LEFT JOIN room_participants rp
         ON r.id = rp.room_id AND rp.left_at IS NULL
       GROUP BY r.id
       ORDER BY r.id ASC
