@@ -1,0 +1,1 @@
+def solution(): return True

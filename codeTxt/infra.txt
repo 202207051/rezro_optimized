@@ -1,0 +1,1425 @@
+// infra/docker/config/gameConfig.js
+import path from "path";
+import dotenv from "dotenv";
+
+dotenv.config();
+
+const currentDirectory = import.meta.dirname;
+const backendDirectory = path.resolve(currentDirectory, "../../../..");
+const projectRoot = path.resolve(backendDirectory, "..");
+
+let sharedDirectory;
+if (process.env.SHARED_DIR) {
+  sharedDirectory = path.resolve(process.env.SHARED_DIR);
+} else {
+  sharedDirectory = path.resolve(backendDirectory, "../../../shared/fileShare");
+}
+
+export const GAME_CONTAINER_CONFIG = {
+  containerName: "build_compiler_sandbox",
+  baseImage: "gameroom-base-image",
+  sandboxPath: path.resolve(sharedDirectory, "sandbox"),
+  resultboxPath: path.resolve(sharedDirectory, "resultbox"),
+
+  build: {
+    contextPath: projectRoot,
+    dockerfilePath: path.resolve(
+      backendDirectory,
+      "src/infra/docker/dockerimage/game.Dockerfile",
+    ),
+    imageTag: "gameroom-base-image:latest",
+    buildOptions: ["--no-cache"],
+  },
+
+  languages: {
+    c: { compiler: "gcc", ext: "c" },
+    cpp: { compiler: "g++", ext: "cpp" },
+    python: { compiler: "python3", ext: "py" },
+    py: { compiler: "python3", ext: "py" },
+    java: { compiler: "javac", ext: "java" },
+    html: { compiler: "htmlhint", ext: "html" },
+    css: { compiler: "stylelint", ext: "css" },
+  },
+};
+
+
+// infra/docker/config/prepareInfoConfig.js
+import dotenv from "dotenv";
+
+dotenv.config();
+
+export const PREPARE_INFO_CONFIG = {
+  defaultGameDurationSeconds: 180,
+  defaultProblemCount: 3,
+  defaultMaxPlayers: 2,
+
+  defaults: {
+    gameMode: "normal",
+    difficulty: "EASY",
+    language: "PYTHON",
+  },
+
+  valkey: {
+    lockTTLSeconds: 10,
+    keys: {
+      lockInit: function (roomId) {
+        return "lock:battle:init:" + roomId;
+      },
+      matchState: function (matchId) {
+        return "match:" + matchId + ":state";
+      },
+    },
+  },
+
+  fallbackProblem: {
+    id: "prob_101",
+    type: "CHOICE",
+    difficulty: "easy",
+    title: "두 수의 합 구하기",
+    question: "1 + 1의 결과는?",
+    options: JSON.stringify(["1", "2", "3", "4"]),
+    description: "기초 산수 문제",
+  },
+};
+
+
+// infra/docker/config/roomConfig.js
+import dotenv from "dotenv";
+
+dotenv.config();
+
+export const ROOM_CONFIG = {
+  maxParticipants: 8,
+  minParticipantsToStart: {
+    "1/1": 2,
+    default: 3,
+  },
+
+  roomStatus: {
+    WAITING: "WAITING",
+    STARTED: "STARTED",
+    FINISHED: "FINISHED",
+  },
+
+  valkey: {
+    keys: {
+      state: function (roomId) {
+        return "room:" + roomId + ":state";
+      },
+      participants: function (roomId) {
+        return "room:" + roomId + ":participants";
+      },
+      ready: function (roomId) {
+        return "room:" + roomId + ":ready";
+      },
+    },
+  },
+};
+
+
+// infra/docker/config/saveInfoConfig.js
+import dotenv from "dotenv";
+
+dotenv.config();
+
+export const SAVE_CONFIG = {
+  tables: {
+    matchResults: "match_results",
+    userStats: "user_stats",
+    submissionLogs: "submission_logs",
+  },
+
+  scoring: {
+    winBaseScore: 100,
+    timeBonusMultiplier: 0.5,
+    participationScore: 10,
+  },
+
+  valkey: {
+    keys: {
+      matchResult: function (matchId) {
+        return "match:" + matchId + ":result";
+      },
+    },
+  },
+};
+
+
+// infra/docker/controller/gameController.js
+import { manageGameManager } from "#docker/manager/manageGameManager.js";
+import { saveInfoService } from "#docker/service/saveInfoService.js";
+
+export const gameController = {
+  startGame: async function (req, res) {
+    try {
+      const roomId = req.params.roomId;
+      const gameResult = await manageGameManager.startGame(roomId);
+
+      res.status(200).json({
+        success: true,
+        message: "Game started successfully.",
+        data: gameResult,
+      });
+    } catch (error) {
+      console.error("[GameController] startGame error:", error.message);
+      res.status(500).json({
+        success: false,
+        message: error.message,
+      });
+    }
+  },
+
+  endGame: async function (req, res) {
+    try {
+      const matchId = req.body.matchId;
+      const roomId = req.body.roomId;
+      const winnerId = req.body.winnerId;
+      const score = req.body.score;
+
+      const saveResult = await saveInfoService.saveGameResult({
+        matchId: matchId,
+        roomId: roomId,
+        winnerId: winnerId,
+        score: score,
+      });
+
+      await manageGameManager.stopGame(roomId);
+
+      res.status(200).json({
+        success: true,
+        message: "Game ended and results saved successfully.",
+        data: saveResult,
+      });
+    } catch (error) {
+      console.error("[GameController] endGame error:", error.message);
+      res.status(500).json({
+        success: false,
+        message: error.message,
+      });
+    }
+  },
+};
+
+
+// infra/docker/controller/roomController.js
+import { manageRoomManager } from "#docker/manager/manageRoomManager.js";
+
+export const roomController = {
+  createRoom: async function (req, res) {
+    try {
+      const title = req.body.title;
+      const mode = req.body.mode;
+      const hostId = req.user.id;
+
+      const roomData = await manageRoomManager.createRoom({
+        title: title,
+        mode: mode,
+        hostId: hostId,
+      });
+
+      res.status(201).json({
+        success: true,
+        data: roomData,
+      });
+    } catch (error) {
+      console.error("[RoomController] createRoom error:", error.message);
+      res.status(500).json({
+        success: false,
+        message: error.message,
+      });
+    }
+  },
+
+  getRoomDetails: async function (req, res) {
+    try {
+      const roomId = req.params.roomId;
+      const details = await manageRoomManager.getRoomDetails(roomId);
+
+      res.status(200).json({
+        success: true,
+        data: details,
+      });
+    } catch (error) {
+      console.error("[RoomController] getRoomDetails error:", error.message);
+      res.status(500).json({
+        success: false,
+        message: error.message,
+      });
+    }
+  },
+};
+
+
+// infra/docker/dockerimage/game.Dockerfile
+FROM registry.access.redhat.com/ubi9/ubi:latest
+
+RUN dnf update -y && dnf install -y \
+    gcc \
+    gcc-c++ \
+    make \
+    python3 \
+    python3-pip \
+    java-21-openjdk-devel \
+    nss \
+    atk \
+    at-spi2-atk \
+    libXcomposite \
+    libXrandr \
+    libXdamage \
+    libxshmfence \
+    glib2 \
+    pango \
+    alsa-lib \
+    fontconfig \
+    && dnf clean all
+
+RUN dnf module enable nodejs:20 -y && dnf install -y nodejs && dnf clean all
+
+WORKDIR /app
+
+RUN mkdir -p /app/src/infra/mountpoint/sandbox /app/src/infra/mountpoint/resultbox /app/sandbox /app/resultbox
+
+ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=false
+
+RUN npm install -g --ignore-scripts htmlhint stylelint cheerio puppeteer pixelmatch
+
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev --ignore-scripts
+
+COPY backend ./backend
+
+RUN useradd -m runner && chown -R runner:runner /app
+USER runner
+
+EXPOSE 8080
+
+CMD ["node", "backend/bin/www"]
+
+
+// infra/docker/dockerimage/room.Dockerfile
+FROM registry.access.redhat.com/ubi9/ubi:latest
+
+RUN dnf update -y && \
+    dnf module enable nodejs:20 -y && \
+    dnf install -y nodejs && \
+    dnf clean all
+
+WORKDIR /usr/src/gameroom
+
+RUN mkdir -p /usr/src/gameroom
+
+COPY package*.json ./
+RUN npm install --only=production --ignore-scripts
+
+COPY . .
+
+RUN chown -R 1001:0 /usr/src/gameroom
+USER 1001
+
+ENV DB_HOST=db \
+    DB_PORT=3306 \
+    REDIS_HOST=valkey \
+    REDIS_PORT=6379
+
+EXPOSE 4000
+
+CMD ["node", "bin/www"]
+
+// infra/docker/dto/gameDto.js
+export class CompileResultDto {
+  constructor(data) {
+    let successValue = false;
+    if (data && data.success) {
+      successValue = true;
+    }
+
+    let executionTimeValue = 0;
+    if (data && data.executionTime) {
+      executionTimeValue = data.executionTime;
+    }
+
+    let outputValue = "";
+    if (data && data.output) {
+      outputValue = data.output;
+    }
+
+    let errorValue = null;
+    if (data && data.error) {
+      errorValue = data.error;
+    }
+
+    this.success = successValue;
+    this.executionTime = executionTimeValue;
+    this.output = outputValue;
+    this.error = errorValue;
+  }
+
+  toJSON() {
+    return {
+      success: this.success,
+      executionTime: this.executionTime,
+      output: this.output,
+      error: this.error,
+    };
+  }
+}
+
+export const gameDto = {
+  toStartGameDto: function (params, userId) {
+    const roomId = params.roomId;
+
+    if (!roomId) {
+      throw new Error("Room ID is required to start game.");
+    }
+
+    if (!userId) {
+      throw new Error("Host User ID is required.");
+    }
+
+    return {
+      roomId: String(roomId),
+      hostUserId: String(userId),
+    };
+  },
+
+  toSaveGameResultDto: function (body) {
+    if (!body || typeof body !== "object") {
+      throw new Error("Invalid request body.");
+    }
+
+    const matchId = body.matchId;
+    const roomId = body.roomId;
+    const winnerId = body.winnerId;
+    const score = body.score;
+
+    if (!matchId || typeof matchId !== "string") {
+      throw new Error("Valid match ID is required.");
+    }
+
+    if (!roomId) {
+      throw new Error("Valid room ID is required.");
+    }
+
+    let validatedWinnerId = null;
+    if (winnerId !== undefined && winnerId !== null) {
+      validatedWinnerId = String(winnerId);
+    }
+
+    let validatedScore = 0;
+    if (typeof score === "number" && !isNaN(score)) {
+      validatedScore = score;
+    }
+
+    return {
+      matchId: matchId,
+      roomId: String(roomId),
+      winnerId: validatedWinnerId,
+      score: validatedScore,
+    };
+  },
+};
+
+
+// infra/docker/dto/roomDto.js
+export const roomDto = {
+  toCreateRoomDto: function (body, userId) {
+    if (!body || typeof body !== "object") {
+      throw new Error("Invalid request body.");
+    }
+
+    const title = body.title;
+    const mode = body.mode;
+
+    if (!title || typeof title !== "string" || title.trim().length === 0) {
+      throw new Error("Room title is required and must be a valid string.");
+    }
+
+    let validatedMode = "normal";
+    if (mode && typeof mode === "string") {
+      validatedMode = mode.toLowerCase();
+    }
+
+    if (!userId) {
+      throw new Error("Host user ID is required.");
+    }
+
+    return {
+      title: title.trim(),
+      mode: validatedMode,
+      hostId: String(userId),
+    };
+  },
+
+  toToggleReadyDto: function (body, userId) {
+    if (!body || typeof body !== "object") {
+      throw new Error("Invalid request body.");
+    }
+
+    let isReadyValue = false;
+    if (body.isReady === true || body.isReady === "true") {
+      isReadyValue = true;
+    }
+
+    if (!userId) {
+      throw new Error("User ID is required.");
+    }
+
+    return {
+      userId: String(userId),
+      isReady: isReadyValue,
+    };
+  },
+};
+
+
+// infra/docker/dto/submissionDto.js
+export const submissionDto = {
+  toCodeSubmissionDto: function (body, userId) {
+    if (!body || typeof body !== "object") {
+      throw new Error("Invalid request body.");
+    }
+
+    const submissionId = body.submissionId;
+    const language = body.language;
+    const code = body.code;
+    const roomId = body.roomId;
+
+    if (!submissionId) {
+      throw new Error("Submission ID is required.");
+    }
+
+    if (!language || typeof language !== "string") {
+      throw new Error("Programming language is required.");
+    }
+
+    if (code === undefined || code === null || typeof code !== "string") {
+      throw new Error("Source code string is required.");
+    }
+
+    if (!roomId) {
+      throw new Error("Room ID is required.");
+    }
+
+    if (!userId) {
+      throw new Error("User ID is required.");
+    }
+
+    return {
+      submissionId: String(submissionId),
+      userId: String(userId),
+      language: language.toLowerCase().trim(),
+      code: code,
+      roomId: String(roomId),
+    };
+  },
+};
+
+
+// infra/docker/middleware/authoMiddleware.js
+import jwt from "jsonwebtoken";
+
+export const authMiddleware = {
+  authenticateUser: function (req, res, next) {
+    try {
+      const authHeader = req.headers.authorization;
+
+      if (!authHeader || typeof authHeader !== "string") {
+        return res.status(401).json({
+          success: false,
+          message: "Authorization header is missing.",
+        });
+      }
+
+      let token = "";
+      if (authHeader.startsWith("Bearer ")) {
+        token = authHeader.split(" ")[1];
+      } else {
+        token = authHeader;
+      }
+
+      if (!token || token.trim().length === 0) {
+        return res.status(401).json({
+          success: false,
+          message: "Authentication token is missing.",
+        });
+      }
+
+      const jwtSecret = process.env.JWT_SECRET || "default_jwt_secret";
+      const decodedPayload = jwt.verify(token, jwtSecret);
+
+      req.user = decodedPayload;
+      next();
+    } catch (error) {
+      console.error(
+        "[AuthMiddleware] Token verification failed:",
+        error.message,
+      );
+      return res.status(401).json({
+        success: false,
+        message: "Invalid or expired token: " + error.message,
+      });
+    }
+  },
+};
+
+
+// infra/docker/middleware/roomMiddleware.js
+import { redisClient } from "#config/redisConfig.js";
+import { ROOM_CONFIG } from "#docker/config/roomConfig.js";
+
+export const roomMiddleware = {
+  validateRoomExists: async function (req, res, next) {
+    try {
+      let roomId = req.params.roomId;
+      if (!roomId && req.body) {
+        roomId = req.body.roomId;
+      }
+
+      if (!roomId) {
+        return res.status(400).json({
+          success: false,
+          message: "Room ID is required.",
+        });
+      }
+
+      const stateKey = ROOM_CONFIG.valkey.keys.state(roomId);
+      const roomState = await redisClient.hGetAll(stateKey);
+
+      if (!roomState || !roomState.hostUserId) {
+        return res.status(404).json({
+          success: false,
+          message: "Room not found or expired: " + roomId,
+        });
+      }
+
+      req.roomState = roomState;
+      next();
+    } catch (error) {
+      console.error("[RoomMiddleware] Room validation error:", error.message);
+      return res.status(500).json({
+        success: false,
+        message: error.message,
+      });
+    }
+  },
+
+  verifyHostPermission: function (req, res, next) {
+    try {
+      const roomState = req.roomState;
+      const user = req.user;
+
+      if (!roomState) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "Room state not loaded. Ensure validateRoomExists middleware is executed first.",
+        });
+      }
+
+      if (!user || !user.id) {
+        return res.status(401).json({
+          success: false,
+          message: "Authenticated user information is missing.",
+        });
+      }
+
+      const hostUserId = String(roomState.hostUserId);
+      const currentUserId = String(user.id);
+
+      if (hostUserId !== currentUserId) {
+        return res.status(403).json({
+          success: false,
+          message: "Only the room host can perform this action.",
+        });
+      }
+
+      next();
+    } catch (error) {
+      console.error("[RoomMiddleware] Host verification error:", error.message);
+      return res.status(500).json({
+        success: false,
+        message: error.message,
+      });
+    }
+  },
+
+  verifyRoomWaitingStatus: function (req, res, next) {
+    try {
+      const roomState = req.roomState;
+
+      if (!roomState) {
+        return res.status(400).json({
+          success: false,
+          message: "Room state not loaded.",
+        });
+      }
+
+      if (roomState.status !== ROOM_CONFIG.roomStatus.WAITING) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "Room is not in WAITING status. Current status: " +
+            roomState.status,
+        });
+      }
+
+      next();
+    } catch (error) {
+      console.error(
+        "[RoomMiddleware] Room status verification error:",
+        error.message,
+      );
+      return res.status(500).json({
+        success: false,
+        message: error.message,
+      });
+    }
+  },
+};
+
+
+// infra/docker/service/fileService.js
+import fs from "fs/promises";
+import path from "path";
+import { GAME_CONTAINER_CONFIG } from "#docker/config/gameConfig.js";
+
+const SANDBOX_PATH = GAME_CONTAINER_CONFIG.sandboxPath;
+
+export const fileService = {
+  
+  getExt: function (language) {
+    if (typeof language !== "string" || language.trim().length === 0) {
+      throw new Error("지원하지 않는 언어입니다: empty language");
+    }
+
+    const lang = language.toLowerCase();
+    const langConfig = GAME_CONTAINER_CONFIG.languages[lang];
+    if (langConfig) {
+      return langConfig.ext;
+    }
+
+    throw new Error("지원하지 않는 언어입니다: " + language);
+  },
+
+  
+  saveSourceCode: async function (userId, language, code) {
+    const ext = fileService.getExt(language);
+    const fileName = userId + "." + ext;
+    const targetPath = path.join(SANDBOX_PATH, fileName);
+
+    try {
+      await fs.mkdir(SANDBOX_PATH, { recursive: true });
+      console.log("[FileService] Save start --> " + fileName);
+
+      await fs.writeFile(targetPath, code, "utf-8");
+      console.log("[FileService] Save complete --> " + targetPath);
+
+      return {
+        success: true,
+        fileName: fileName,
+        targetPath: targetPath,
+      };
+    } catch (error) {
+      console.error("[FileService] Save error:", error.message);
+      throw new Error("Source code file creation error: " + error.message);
+    }
+  },
+
+  
+  deleteSourceCode: async function (userId, language) {
+    try {
+      const ext = fileService.getExt(language);
+      const fileName = userId + "." + ext;
+      const targetPath = path.join(SANDBOX_PATH, fileName);
+
+      await fs.unlink(targetPath);
+      console.log("[FileService] Remove complete: " + fileName);
+      return true;
+    } catch (error) {
+      if (error.code === "ENOENT") {
+        return true;
+      }
+      console.error("[FileService] Remove error:", error.message);
+      return false;
+    }
+  },
+};
+
+// infra/docker/service/prepareInfoService.js
+import { pool as dbPool } from "#config/dbConfig.js";
+import { redisClient } from "#config/redisConfig.js";
+import { lockService } from "#infra/redis/lockService.js";
+import { ROOM_CONFIG } from "#docker/config/roomConfig.js";
+
+function toSafeHashObject(obj) {
+  const result = {};
+  for (const [key, val] of Object.entries(obj)) {
+    result[key] = val ?? "";
+  }
+  return result;
+}
+
+class PrepareInfoService {
+  async getGameStartPayload(roomId, io) {
+    const lockKey = `lock:prepare_game:${roomId}`;
+
+    return await lockService.executeWithLock(lockKey, 10, async () => {
+      console.log(
+        `\n[PrepareInfoService] 방(${roomId})의 게임 시작 정보 연산 시작...`,
+      );
+
+      const roomStateKey = ROOM_CONFIG.valkey.keys.state(roomId);
+      const participantsKey = ROOM_CONFIG.valkey.keys.participants(roomId);
+
+      const existingState = (await redisClient.hGetAll(roomStateKey)) ?? {};
+      const participants = (await redisClient.sMembers(participantsKey)) ?? [];
+
+      const roomRows = await dbPool.query(
+        "SELECT id, title, language, difficulty FROM rooms WHERE id = ?",
+        [roomId],
+      );
+      if (!roomRows?.length) {
+        throw new Error(`존재하지 않는 방입니다. (roomId: ${roomId})`);
+      }
+      const roomInfo = roomRows[0];
+
+      const language = existingState.language || roomInfo.language || "python";
+      const difficulty =
+        existingState.difficulty || roomInfo.difficulty || "easy";
+
+      const problemRows = await dbPool.query(
+        "SELECT id, type, difficulty, title, question, description, answer, options, explanation FROM problems ORDER BY RAND() LIMIT 1",
+      );
+      if (!problemRows?.length) {
+        throw new Error("게임에 사용할 수 있는 문제가 DB에 존재하지 않습니다.");
+      }
+
+      const rawProblem = problemRows[0];
+      const defaultRoundSeconds = 60;
+      const matchId = `battle-${roomId}`;
+
+      await redisClient.hSet(
+        roomStateKey,
+        toSafeHashObject({
+          matchId,
+          currentProblemIndex: "1",
+          timeLimit: defaultRoundSeconds,
+          status: ROOM_CONFIG.roomStatus?.IN_GAME ?? "IN_GAME",
+          problemId: rawProblem.id,
+          language,
+          difficulty,
+        }),
+      );
+
+      const safeProblem = {
+        id: rawProblem.id ?? "",
+        type: rawProblem.type ?? "",
+        difficulty: rawProblem.difficulty ?? "",
+        title: rawProblem.title ?? "",
+        question: rawProblem.question ?? "",
+        description: rawProblem.description ?? "",
+        options: rawProblem.options ?? null,
+        timeLimit: defaultRoundSeconds,
+      };
+
+      const socketPayload = {
+        matchId,
+        roomId: String(roomId),
+        message: "배틀이 곧 시작됩니다! 준비하세요.",
+        status: ROOM_CONFIG.roomStatus?.IN_GAME ?? "IN_GAME",
+        currentProblemIndex: 1,
+        timeLimit: defaultRoundSeconds,
+        participants,
+        problem: safeProblem,
+      };
+
+      if (io) {
+        const targetRoom = String(roomId);
+
+        io.to(targetRoom).emit("game_start_notice", {
+          message: "배틀이 곧 시작됩니다! 준비하세요.",
+          roomId: targetRoom,
+        });
+
+        io.to(targetRoom).emit("game_started", socketPayload);
+      }
+
+      console.log(`[PrepareInfoService] 연산 완료 (Match ID: ${matchId})`);
+      return socketPayload;
+    });
+  }
+}
+
+export const prepareInfoService = new PrepareInfoService();
+
+
+// infra/docker/service/saveInfoService.js
+import { pool as dbPool } from "#config/dbConfig.js";
+
+export const saveInfoService = {
+  async saveGameResult({ matchId, roomId, winnerId, score, submissions = [] }) {
+    const connection = await dbPool.getConnection();
+    try {
+      await connection.beginTransaction();
+
+      await connection.query(
+        `UPDATE matches 
+         SET status = 'FINISHED', finished_at = CURRENT_TIMESTAMP 
+         WHERE id = ?`,
+        [matchId],
+      );
+
+      if (submissions && submissions.length > 0) {
+        for (const sub of submissions) {
+          await connection.query(
+            `INSERT INTO match_submissions 
+              (match_id, user_id, ingame_score, rating_score_before, rating_delta, codes, solve_times, problem_results, solved_problems, total_solve_time, completion_time)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [
+              matchId,
+              sub.userId,
+              sub.score ?? 0,
+              sub.ratingBefore ?? 1000,
+              sub.ratingDelta ?? 0,
+              JSON.stringify(sub.codes ?? []),
+              JSON.stringify(sub.solveTimes ?? []),
+              JSON.stringify(sub.problemResults ?? []),
+              JSON.stringify(sub.solvedProblems ?? []),
+              sub.totalSolveTime ?? 0,
+              sub.completionTime ?? 0,
+            ],
+          );
+        }
+      } else if (winnerId) {
+        await connection.query(
+          `INSERT INTO match_submissions 
+            (match_id, user_id, ingame_score, rating_score_before, rating_delta, codes, solve_times, problem_results, solved_problems, total_solve_time, completion_time)
+           VALUES (?, ?, ?, 1000, 0, '[]', '[]', '[]', '[]', 0, 0)
+           ON DUPLICATE KEY UPDATE ingame_score = VALUES(ingame_score)`,
+          [matchId, winnerId, score],
+        );
+      }
+
+      await connection.commit();
+      console.log(
+        `[saveInfoService] Successfully saved match result for matchId: ${matchId}`,
+      );
+      return true;
+    } catch (error) {
+      await connection.rollback();
+      console.error(`[saveInfoService] Failed to save game result:`, error);
+      throw error;
+    } finally {
+      connection.release();
+    }
+  },
+};
+
+
+// infra/docker/test/testGame.js
+import { pool as dbPool } from "#config/dbConfig.js";
+import { redisClient } from "#config/redisConfig.js";
+import { prepareInfoService } from "#docker/service/prepareInfoService.js";
+import { saveInfoService } from "#docker/service/saveInfoService.js";
+import { gameWorker } from "#docker/worker/gameWorker.js";
+
+import { SOCKET_EVENTS } from "#constants/socketEvents.js";
+import { registerSocketHandlers } from "#handler/socketHandler.js";
+
+function getRandomElement(arr) {
+  if (!arr || arr.length === 0) {
+    return null;
+  }
+  const randomIndex = Math.floor(Math.random() * arr.length);
+  return arr[randomIndex];
+}
+
+async function runBattleFlowTest() {
+  console.log("==================================================");
+  console.log(
+    "[TEST START] 배틀 및 신규 소켓 통합 플로우 테스트 (랜덤 시나리오)를 시작합니다.",
+  );
+  console.log("==================================================");
+
+  try {
+    if (!redisClient.isOpen) {
+      await redisClient.connect();
+      console.log("[REDIS] Valkey/Redis 클라이언트 연결 완료");
+    }
+
+    console.log("\n[STEP 1] DB에서 테스트 대상 방(room) 랜덤 조회 중...");
+    const roomRows = await dbPool.query(
+      "SELECT id, host_user_id, language FROM rooms WHERE status = 'WAITING' ORDER BY RAND() LIMIT 1",
+    );
+
+    if (!roomRows || roomRows.length === 0) {
+      throw new Error("테스트할 WAITING 상태의 방이 DB에 존재하지 않습니다.");
+    }
+
+    const testRoom = roomRows[0];
+    const roomId = testRoom.id;
+    console.log(
+      "[STEP 1 완료] 선택된 랜덤 방 ID: " +
+        roomId +
+        " (호스트: " +
+        testRoom.host_user_id +
+        " | 언어: " +
+        testRoom.language +
+        ")",
+    );
+
+    console.log(
+      "\n[STEP 2] Fake Socket/IO 생성 및 registerSocketHandlers 등록...",
+    );
+
+    const socketEventListeners = {};
+
+    const fakeSocket = {
+      id: "fake_socket_id_" + Math.floor(Math.random() * 8999 + 1000),
+      user: {
+        id: String(testRoom.host_user_id),
+        displayName: "TestUser_" + testRoom.host_user_id,
+      },
+      join: function (roomName) {
+        console.log("[FAKE SOCKET] 방 [" + roomName + "]에 join 완료");
+      },
+      emit: function (eventName, payload) {
+        console.log("\n--------------------------------------------------");
+        console.log("[FAKE SOCKET UNICAST RCV] 이벤트: " + eventName);
+        console.log(" - 데이터:", JSON.stringify(payload, null, 2));
+        console.log("--------------------------------------------------");
+      },
+      to: function (roomName) {
+        return {
+          emit: function (eventName, payload) {
+            console.log("\n--------------------------------------------------");
+            console.log(
+              "[FAKE SOCKET ROOM BROADCAST RCV] 방: " +
+                roomName +
+                " | 이벤트: " +
+                eventName,
+            );
+            console.log(" - 데이터:", JSON.stringify(payload, null, 2));
+            console.log("--------------------------------------------------");
+          },
+        };
+      },
+      on: function (eventName, listener) {
+        socketEventListeners[eventName] = listener;
+      },
+    };
+
+    const fakeIo = {
+      to: function (roomName) {
+        return {
+          emit: function (eventName, payload) {
+            console.log("\n--------------------------------------------------");
+            console.log(
+              "[FAKE IO BROADCAST RCV] 타겟 룸: " +
+                roomName +
+                " | 이벤트: " +
+                eventName,
+            );
+
+            if (eventName === "game_start_notice") {
+              console.log(' - 안내 메시지: "' + payload.message + '"');
+            } else if (eventName === "game_started") {
+              let participantsStr = "";
+              if (payload.participants) {
+                participantsStr = payload.participants.join(", ");
+              }
+
+              let problemId = "";
+              let problemTitle = "";
+              if (payload.problem) {
+                problemId = payload.problem.id;
+                problemTitle = payload.problem.title;
+              }
+
+              console.log(" - Match ID : " + payload.matchId);
+              console.log(" - 수신 참가자: [ " + participantsStr + " ]");
+              console.log(" - 문제 ID    : " + problemId);
+              console.log(" - 문제 제목  : " + problemTitle);
+              console.log(" - 제한 시간  : " + payload.timeLimit + "초");
+            } else if (eventName === "game_ended") {
+              console.log(" - 우승자 ID  : " + payload.winnerId);
+              console.log(" - 최종 점수  : " + payload.score);
+            } else {
+              console.log(" - 데이터:", JSON.stringify(payload, null, 2));
+            }
+            console.log("--------------------------------------------------");
+          },
+        };
+      },
+    };
+
+    registerSocketHandlers(fakeIo, fakeSocket);
+
+    console.log(
+      "\n[STEP 3] prepareInfoService.getGameStartPayload() 호출 및 연산 결과 수신",
+    );
+
+    const startPayload = await prepareInfoService.getGameStartPayload(
+      roomId,
+      fakeIo,
+    );
+
+    console.log("\n==================================================");
+    console.log("[testGame] prepareInfoService로부터 반환받은 데이터:");
+    console.log(" - 매치 ID       : " + startPayload.matchId);
+    console.log(" - 방 ID         : " + startPayload.roomId);
+    console.log(
+      " - 참가자 명단   : [ " + startPayload.participants.join(", ") + " ]",
+    );
+    console.log(
+      " - 문제 ID/제목  : [" +
+        startPayload.problem.id +
+        "] " +
+        startPayload.problem.title,
+    );
+    console.log(" - 문제 제한시간 : " + startPayload.timeLimit + "초");
+    console.log("==================================================");
+
+    let participantIds = [];
+    if (startPayload.participants && startPayload.participants.length > 0) {
+      participantIds = startPayload.participants;
+    } else {
+      participantIds = [String(testRoom.host_user_id)];
+    }
+
+    console.log("\n[STEP 4] gameWorker를 통한 답안 제출 및 검증");
+
+    const codeMap = {
+      python: "print('Hello World')",
+      cpp: '#include <iostream>\nint main() { std::cout << "Hello World"; return 0; }',
+      java: 'public class Main { public static void main(String[] args) { System.out.println("Hello World"); } }',
+      js: "console.log('Hello World');",
+    };
+
+    const roomLangStr = testRoom.language
+      ? testRoom.language.toLowerCase()
+      : "python";
+    const selectedCode = codeMap[roomLangStr] || "print('Hello World')";
+
+    const submissionResults = [];
+    for (let idx = 0; idx < participantIds.length; idx++) {
+      const currentUserId = participantIds[idx];
+      console.log(
+        "[STEP 4-" +
+          (idx + 1) +
+          "] 유저 " +
+          currentUserId +
+          " 의 코드 실행 요청...",
+      );
+
+      const submission = {
+        submissionId: "sub_" + Date.now() + "_" + idx,
+        userId: currentUserId,
+        roomId: roomId,
+        language: roomLangStr,
+        code: selectedCode,
+      };
+
+      const compileResult = await gameWorker.processSubmission(submission);
+      console.log(
+        "[STEP 4-" +
+          (idx + 1) +
+          " 완료] 실행 성공: " +
+          compileResult.success +
+          " | 소요시간: " +
+          compileResult.executionTime +
+          "ms",
+      );
+
+      submissionResults.push({
+        userId: currentUserId,
+        code: selectedCode,
+        result: compileResult,
+      });
+    }
+
+    console.log(
+      "\n[STEP 5] [신규 소켓 이벤트] Handler & Service 통합 동작 검증",
+    );
+
+    const redisReadyKey = "room:" + roomId + ":ready";
+
+    const initialKeyType = await redisClient.type(redisReadyKey);
+    if (initialKeyType !== "none" && initialKeyType !== "set") {
+      await redisClient.del(redisReadyKey);
+    }
+
+    console.log(
+      "\n - [SOCKET/REDIS CHECK] '" +
+        SOCKET_EVENTS.TOGGLE_READY +
+        "' 실행 및 Redis Key 저장 검증...",
+    );
+
+    await socketEventListeners[SOCKET_EVENTS.TOGGLE_READY](
+      { roomId: roomId, isReady: true },
+      function (res) {
+        console.log("   [TOGGLE_READY ACK 응답]:", res);
+      },
+    );
+
+    const redisReadySetData = await redisClient.sMembers(redisReadyKey);
+
+    console.log("   --------------------------------------------------");
+    console.log("   [REDIS VERIFICATION SUCCESS]");
+    console.log("   - 타겟 Redis Key: " + redisReadyKey);
+    console.log(
+      "   - Redis Set 저장 데이터:",
+      JSON.stringify(redisReadySetData),
+    );
+    console.log(
+      "   - 검증 결과: manageGameService가 읽어올 Set 키(" +
+        redisReadyKey +
+        ")에 정상적으로 데이터가 저장되었습니다.",
+    );
+    console.log("   --------------------------------------------------");
+
+    const realQuestionId = startPayload.problem
+      ? startPayload.problem.id
+      : null;
+
+    console.log(
+      "\n - [SOCKET] '" +
+        SOCKET_EVENTS.SUBMIT_CODE +
+        "' 이벤트 발생시키는 중...",
+    );
+    await socketEventListeners[SOCKET_EVENTS.SUBMIT_CODE](
+      {
+        roomId: roomId,
+        code: selectedCode,
+        language: roomLangStr,
+        questionId: realQuestionId,
+      },
+      function (res) {
+        console.log("   [ACK 응답]:", res);
+      },
+    );
+
+    const randomItemTypes = ["FOG_SCREEN", "PAINT", "FREEZE", "REVEAL_LENGTH"];
+    const selectedItem = getRandomElement(randomItemTypes);
+
+    const otherUsers = await dbPool.query(
+      "SELECT id FROM users WHERE id != ? ORDER BY RAND() LIMIT 1",
+      [testRoom.host_user_id],
+    );
+
+    let realTargetUserId = null;
+    if (otherUsers && otherUsers.length > 0) {
+      realTargetUserId = otherUsers[0].id;
+    }
+
+    console.log(
+      "\n - [SOCKET] '" + SOCKET_EVENTS.USE_ITEM + "' 이벤트 발생시키는 중...",
+    );
+    await socketEventListeners[SOCKET_EVENTS.USE_ITEM](
+      {
+        roomId: roomId,
+        targetUserId: realTargetUserId,
+        itemType: selectedItem,
+      },
+      function (res) {
+        console.log("   [ACK 응답]:", res);
+      },
+    );
+
+    console.log(
+      "\n - [SOCKET] '" +
+        SOCKET_EVENTS.REQUEST_NEXT_QUESTION +
+        "' 이벤트 발생시키는 중...",
+    );
+    await socketEventListeners[SOCKET_EVENTS.REQUEST_NEXT_QUESTION](
+      { roomId: roomId, questionIndex: 1 },
+      function (res) {
+        console.log("   [ACK 응답]:", res);
+      },
+    );
+
+    console.log("\n[STEP 6] 참가자별 최후 코드 DB(match_code_history) 저장");
+
+    for (let i = 0; i < submissionResults.length; i++) {
+      const item = submissionResults[i];
+      const now = new Date();
+      const historyId = roomId + "::" + now.toISOString();
+      const finalCodesJson = JSON.stringify([item.code]);
+      const problemsJson = JSON.stringify([{ id: startPayload.problem.id }]);
+
+      await dbPool.query(
+        "INSERT INTO match_code_history (history_id, user_id, room_id, submitted_at, lang, mode, code, codes, problems) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        [
+          historyId,
+          item.userId,
+          String(roomId),
+          now,
+          testRoom.language,
+          "1/1",
+          item.code,
+          finalCodesJson,
+          problemsJson,
+        ],
+      );
+
+      console.log(
+        "[STEP 6 완료] 유저 " +
+          item.userId +
+          " 최후 코드 저장 완료 (History ID: " +
+          historyId +
+          ")",
+      );
+    }
+
+    console.log("\n[STEP 7] saveInfoService.saveGameResult() 실행");
+
+    const winnerId = getRandomElement(participantIds);
+
+    const gameResultData = {
+      matchId: startPayload.matchId,
+      roomId: roomId,
+      winnerId: winnerId,
+      score: Math.floor(Math.random() * 300) + 100,
+    };
+
+    await saveInfoService.saveGameResult(gameResultData);
+    console.log(
+      "[STEP 7 완료] 매치 " +
+        gameResultData.matchId +
+        " 결과 저장 완료 (우승자: " +
+        gameResultData.winnerId +
+        " | 점수: " +
+        gameResultData.score +
+        ")",
+    );
+
+    console.log("\n==================================================");
+    console.log(
+      "[TEST SUCCESS] 모든 배틀 및 소켓 기능의 통합 테스트 시나리오가 정상 종료되었습니다.",
+    );
+    console.log("==================================================");
+  } catch (error) {
+    console.error("\n[TEST FAILED] 테스트 진행 중 오류 발생:", error);
+  } finally {
+    if (redisClient && redisClient.isOpen) {
+      await redisClient.quit();
+    }
+    process.exit(0);
+  }
+}
+
+runBattleFlowTest();
+
+
+// infra/docker/worker/gameWorker.js
+import fs from "fs/promises";
+import path from "path";
+import { CompileResultDto } from "#docker/dto/gameDto.js";
+
+class GameWorker {
+  async processSubmission(submission) {
+    const submissionId = submission.submissionId;
+    const userId = submission.userId;
+    const roomId = submission.roomId;
+    const language = submission.language;
+    const code = submission.code;
+
+    console.log(
+      "[GameWorker] Processing submission ID: " +
+        submissionId +
+        " for language: " +
+        language +
+        " (User: " +
+        userId +
+        ", Room: " +
+        roomId +
+        ")",
+    );
+
+    const startTime = Date.now();
+    const sandboxDir = "/home/shared/fileShare/sandbox";
+    const filePath = path.join(sandboxDir, userId + ".py");
+
+    try {
+      await fs.mkdir(sandboxDir, { recursive: true });
+
+      await fs.writeFile(filePath, code, "utf-8");
+
+      const executionTime = Date.now() - startTime;
+
+      return new CompileResultDto({
+        success: true,
+        executionTime: executionTime,
+        output: "Hello Battle " + userId,
+        error: null,
+      }).toJSON();
+    } catch (error) {
+      console.error(
+        "[GameWorker] Processing error for submission ID " +
+          submissionId +
+          ": " +
+          error.message,
+      );
+
+      const executionTime = Date.now() - startTime;
+
+      return new CompileResultDto({
+        success: false,
+        executionTime: executionTime,
+        output: "",
+        error: error.message,
+      }).toJSON();
+    }
+  }
+}
+
+export const gameWorker = new GameWorker();
+
+
+// infra/redis/lockService.js
+import { redisClient } from "#config/redisConfig.js";
+
+class LockService {
+  async acquireLock(key, ttlSeconds) {
+    let ttl = 30;
+    if (ttlSeconds) {
+      ttl = ttlSeconds;
+    }
+
+    const lockKey = "lock:" + key;
+    const result = await redisClient.set(lockKey, "locked", {
+      NX: true,
+      EX: ttl,
+    });
+
+    if (result === "OK") {
+      return true;
+    }
+    return false;
+  }
+
+  async releaseLock(key) {
+    const lockKey = "lock:" + key;
+    await redisClient.del(lockKey);
+  }
+
+  async executeWithLock(key, ttlSeconds, taskFunction) {
+    const acquired = await this.acquireLock(key, ttlSeconds);
+    if (!acquired) {
+      throw new Error(
+        "락(Lock)을 획득하지 못했습니다. 이미 해당 작업이 처리 중이거나 실행되었습니다.",
+      );
+    }
+
+    try {
+      const result = await taskFunction();
+      return result;
+    } finally {
+      await this.releaseLock(key);
+    }
+  }
+}
+
+export const lockService = new LockService();
+
+
