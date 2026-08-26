@@ -1,0 +1,186 @@
+// config/redisConfig.js
+import "#config/envConfig.js";
+
+import { createClient } from "redis";
+
+function getRedisHost() {
+  if (process.env.REDIS_HOST) {
+    return process.env.REDIS_HOST;
+  }
+  return "127.0.0.1";
+}
+
+function getRedisPort() {
+  if (process.env.REDIS_PORT) {
+    return Number(process.env.REDIS_PORT);
+  }
+  return 6379;
+}
+
+function getRedisPassword() {
+  if (process.env.REDIS_PASSWORD) {
+    return process.env.REDIS_PASSWORD;
+  }
+  return undefined;
+}
+
+export const redisClient = createClient({
+  socket: {
+    host: getRedisHost(),
+    port: getRedisPort(),
+  },
+  password: getRedisPassword(),
+});
+
+redisClient.on("error", function (error) {
+  console.error("[Valkey] error:", error.message);
+});
+
+export async function connectRedis() {
+  if (!redisClient.isOpen) {
+    await redisClient.connect();
+  }
+  await redisClient.ping();
+  console.log("[Valkey] connected");
+}
+
+// config/envConfig.js
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import dotenv from "dotenv";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+dotenv.config({ path: path.resolve(__dirname, "../../.env") });
+
+function getNodeEnv() {
+  if (process.env.NODE_ENV) {
+    return process.env.NODE_ENV;
+  }
+  return "development";
+}
+
+function getHost() {
+  if (process.env.HOST) {
+    return process.env.HOST;
+  }
+  return "0.0.0.0";
+}
+
+function getPort() {
+  if (process.env.PORT) {
+    return Number(process.env.PORT);
+  }
+  return 8080;
+}
+
+function getJwtSecret() {
+  if (process.env.JWT_SECRET) {
+    return process.env.JWT_SECRET;
+  }
+  return "";
+}
+
+function getJwtExpiresIn() {
+  if (process.env.JWT_EXPIRES_IN) {
+    return process.env.JWT_EXPIRES_IN;
+  }
+  return "1h";
+}
+
+export const env = {
+  nodeEnv: getNodeEnv(),
+  host: getHost(),
+  port: getPort(),
+  jwtSecret: getJwtSecret(),
+  jwtExpiresIn: getJwtExpiresIn(),
+};
+
+// config/authConfig.js
+import dotenv from "dotenv";
+import path from "path";
+import { fileURLToPath } from "url";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+dotenv.config({ path: path.resolve(__dirname, "../../.env") });
+
+function getJwtSecret() {
+  if (process.env.JWT_SECRET) {
+    return process.env.JWT_SECRET;
+  }
+  return "default_jwt_secret";
+}
+
+export const authConfig = {
+  jwtSecret: getJwtSecret(),
+  jwtExpiresIn: "1h",
+  tokenRedisTTL: 3600,
+  saltRounds: 10,
+};
+
+// config/dbConfig.js
+import "#config/envConfig.js";
+
+import mariadb from "mariadb";
+
+export const pool = mariadb.createPool({
+  host: process.env.DB_HOST,
+  port: Number(process.env.DB_PORT || 3306),
+  user: process.env.DB_USER,
+  password: process.env.DB_PASSWORD,
+  database: process.env.DB_NAME,
+  connectionLimit: Number(process.env.DB_CONNECTION_LIMIT || 5),
+});
+
+export async function testDbConnection() {
+  let connection;
+
+  try {
+    connection = await pool.getConnection();
+    await connection.query("SELECT 1");
+    console.log("[MariaDB] connected");
+  } finally {
+    if (connection) {
+      connection.release();
+    }
+  }
+}
+
+// config/manageRoomConfig.js
+export const ROOM_STATUS = Object.freeze({
+  WAITING: "WAITING",
+  STARTED: "STARTED",
+});
+
+export const DEFAULT_ROOM_LIMIT = 3;
+export const MIN_PLAYERS_TO_START = 2;
+
+// config/socketConfig.js
+import { Server } from "socket.io";
+import { socketAuthMiddleware } from "#controller/socketController.js";
+import { registerSocketHandlers } from "#handler/socketHandler.js";
+
+export const socketConfig = {
+  maxMessageLength: 500,
+  recentMessageLimit: 50,
+  defaultRoom: "room_lobby",
+};
+
+export function initSocket(server) {
+  const io = new Server(server, {
+    cors: {
+      origin: "*",
+      methods: ["GET", "POST"],
+    },
+  });
+
+  io.use(socketAuthMiddleware);
+
+  io.on("connection", function (socket) {
+    registerSocketHandlers(io, socket);
+  });
+
+  return io;
+}
+

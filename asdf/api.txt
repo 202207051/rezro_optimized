@@ -1,0 +1,2170 @@
+// api/problem/model.js
+import { pool } from "#config/dbConfig.js";
+
+export async function findProblemsByDifficulty(difficulty) {
+  return pool.query(
+    `SELECT
+       id,
+       type,
+       difficulty,
+       title,
+       question,
+       answer,
+       options,
+       correct_index AS correctIndex,
+       explanation,
+       description,
+       input,
+       output,
+       visual,
+       capability_overrides AS capabilityOverrides
+     FROM problems
+     WHERE LOWER(difficulty) = ?
+     ORDER BY id ASC`,
+    [difficulty],
+  );
+}
+
+// api/problem/controller.js
+
+// api/problem/router.js
+
+// api/problem/service.js
+import * as problemModel from "./model.js";
+import { AppError } from "#utils/appError.js";
+
+const DIFFICULTY_MAP = {
+  "쉬움": "easy",
+  EASY: "easy",
+  "보통": "medium",
+  NORMAL: "medium",
+  MEDIUM: "medium",
+  "어려움": "hard",
+  HARD: "hard",
+};
+
+const LANGUAGE_MAP = {
+  "C++": "CPP",
+  RANDOM: "RANDOM",
+};
+
+function normalizeDifficulty(difficulty) {
+  const value = String(difficulty || "").trim().toUpperCase();
+  return DIFFICULTY_MAP[value] || null;
+}
+
+function normalizeLanguage(language) {
+  const value = String(language || "").trim().toUpperCase();
+  return LANGUAGE_MAP[value] || value;
+}
+
+function parseJson(value, fallbackValue) {
+  if (value === null || value === undefined) {
+    return fallbackValue;
+  }
+
+  if (typeof value !== "string") {
+    return value;
+  }
+
+  try {
+    return JSON.parse(value);
+  } catch (error) {
+    return fallbackValue;
+  }
+}
+
+function normalizeAnswer(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function getAnswersForLanguage(answer, language) {
+  const normalizedLanguage = normalizeLanguage(language);
+
+  if (Array.isArray(answer[normalizedLanguage])) {
+    return answer[normalizedLanguage];
+  }
+
+  for (const values of Object.values(answer)) {
+    if (Array.isArray(values) && values.length > 0) {
+      return values;
+    }
+  }
+
+  return [];
+}
+
+function normalizeProblem(problem) {
+  return {
+    ...problem,
+    answer: parseJson(problem.answer, {}),
+    options: parseJson(problem.options, null),
+    visual: parseJson(problem.visual, null),
+    capabilityOverrides: parseJson(problem.capabilityOverrides, null),
+  };
+}
+
+function shuffleProblems(problems, random) {
+  const shuffled = [...problems];
+
+  for (let index = shuffled.length - 1; index > 0; index -= 1) {
+    const randomIndex = Math.floor(random() * (index + 1));
+    const current = shuffled[index];
+    shuffled[index] = shuffled[randomIndex];
+    shuffled[randomIndex] = current;
+  }
+
+  return shuffled;
+}
+
+export function chooseProblems(problemPool, language, count, random = Math.random) {
+  const normalizedLanguage = normalizeLanguage(language);
+  const candidates = problemPool
+    .map(normalizeProblem)
+    .filter(function (problem) {
+      if (normalizedLanguage === "RANDOM") {
+        return true;
+      }
+
+      return Object.prototype.hasOwnProperty.call(
+        problem.answer,
+        normalizedLanguage,
+      );
+    });
+
+  if (candidates.length === 0) {
+    throw new AppError(
+      404,
+      "PROBLEMS_NOT_FOUND",
+      "선택한 조건에 맞는 문제가 없습니다.",
+    );
+  }
+
+  const selectedProblems = [];
+
+  // 문제 후보를 모두 사용한 경우에만 다시 섞어서 재사용합니다.
+  while (selectedProblems.length < count) {
+    const shuffled = shuffleProblems(candidates, random);
+    const remainingCount = count - selectedProblems.length;
+    selectedProblems.push(...shuffled.slice(0, remainingCount));
+  }
+
+  return selectedProblems;
+}
+
+export async function selectProblems(input) {
+  const difficulty = normalizeDifficulty(input.difficulty);
+  const count = Number(input.count);
+
+  if (!difficulty) {
+    throw new AppError(
+      400,
+      "INVALID_PROBLEM_DIFFICULTY",
+      "지원하지 않는 문제 난이도입니다.",
+    );
+  }
+
+  if (!Number.isInteger(count) || count < 1) {
+    throw new AppError(
+      400,
+      "INVALID_PROBLEM_COUNT",
+      "문제 수는 1개 이상이어야 합니다.",
+    );
+  }
+
+  const problemPool = await problemModel.findProblemsByDifficulty(difficulty);
+  return chooseProblems(problemPool, input.language, count);
+}
+
+// 문제 정답은 서버 안에서만 비교하고 응답에는 정답 여부만 반환합니다.
+export function judgeProblemAnswer(input) {
+  const problem = input.problem;
+  const answers = Array.isArray(input.answers) ? input.answers : [];
+  const selectedOption = input.selectedOption;
+
+  if (!problem || !problem.type) {
+    throw new AppError(400, "INVALID_PROBLEM", "문제 정보가 올바르지 않습니다.");
+  }
+
+  if (problem.type === "multiple_choice") {
+    return Number(selectedOption) === Number(problem.correctIndex);
+  }
+
+  const expectedAnswers = getAnswersForLanguage(
+    parseJson(problem.answer, {}),
+    input.language,
+  );
+
+  if (expectedAnswers.length === 0) {
+    return false;
+  }
+
+  if (problem.type === "short_answer") {
+    return normalizeAnswer(answers[0]) === normalizeAnswer(expectedAnswers[0]);
+  }
+
+  if (answers.length !== expectedAnswers.length) {
+    return false;
+  }
+
+  return answers.every(function (answer, index) {
+    return normalizeAnswer(answer) === normalizeAnswer(expectedAnswers[index]);
+  });
+}
+
+// api/problem/dto/userResponseDto.js
+
+// api/problem/dto/loginRequestDto.js
+
+// api/problem/dto/signupRequestDto.js
+
+// api/build/README.md
+# BUILD 작업 위치
+
+BUILD 라우터, 컨트롤러, 서비스 코드는 이 폴더에 작성하시면 됩니다.
+Podman을 직접 실행하는 코드는 `src/infra/docker`에 작성하시면 됩니다.
+
+// api/room/model.js
+import { pool } from "#config/dbConfig.js";
+
+const ROOM_SELECT = `
+  SELECT
+    r.id,
+    r.title,
+    r.status,
+    r.mode,
+    r.game_mode AS gameMode,
+    r.difficulty,
+    r.language,
+    r.problem_count AS problemCount,
+    r.max_players AS maxPlayers,
+    r.host_user_id AS hostUserId,
+    r.created_at AS createdAt,
+    CASE WHEN r.password <> '' THEN 1 ELSE 0 END AS isPrivate,
+    (
+      SELECT COUNT(*)
+      FROM room_participants rp
+      WHERE rp.room_id = r.id
+        AND rp.left_at IS NULL
+    ) AS currentPlayers
+  FROM rooms r
+`;
+
+export async function createRoomWithHost(input) {
+  const connection = await pool.getConnection();
+
+  try {
+    await connection.beginTransaction();
+
+    const result = await connection.query(
+      `INSERT INTO rooms (
+         title,
+         status,
+         mode,
+         game_mode,
+         difficulty,
+         language,
+         password,
+         problem_count,
+         max_players,
+         host_user_id
+       )
+       VALUES (?, 'WAITING', ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        input.title,
+        input.mode,
+        input.gameMode,
+        input.difficulty,
+        input.language,
+        input.passwordHash,
+        input.problemCount,
+        input.maxPlayers,
+        input.hostUserId,
+      ],
+    );
+
+    const roomId = Number(result.insertId);
+
+    await connection.query(
+      `INSERT INTO room_participants (
+         room_id,
+         user_id,
+         slot_index,
+         is_host,
+         is_ready,
+         language,
+         \`character\`,
+         status
+       )
+       VALUES (?, ?, 0, TRUE, FALSE, ?, 'char1', 'HOST')`,
+      [roomId, input.hostUserId, input.language],
+    );
+
+    await connection.commit();
+    return findRoomById(roomId);
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+}
+
+export async function findRooms() {
+  return pool.query(
+    `${ROOM_SELECT}
+     WHERE r.status <> 'CLOSED'
+     ORDER BY r.created_at DESC, r.id DESC`,
+  );
+}
+
+export async function findRoomById(roomId) {
+  const rows = await pool.query(
+    `${ROOM_SELECT}
+     WHERE r.id = ?
+       AND r.status <> 'CLOSED'
+     LIMIT 1`,
+    [roomId],
+  );
+
+  if (rows.length === 0) {
+    return null;
+  }
+
+  return rows[0];
+}
+
+export async function findRoomWithPassword(roomId) {
+  const rows = await pool.query(
+    `SELECT
+       id,
+       title,
+       status,
+       mode,
+       game_mode AS gameMode,
+       difficulty,
+       language,
+       password AS passwordHash,
+       problem_count AS problemCount,
+       max_players AS maxPlayers,
+       host_user_id AS hostUserId,
+       created_at AS createdAt
+     FROM rooms
+     WHERE id = ?
+     LIMIT 1`,
+    [roomId],
+  );
+
+  if (rows.length === 0) {
+    return null;
+  }
+
+  return rows[0];
+}
+
+export async function findRoomParticipants(roomId) {
+  return pool.query(
+    `SELECT
+       rp.id,
+       rp.user_id AS userId,
+       u.display_name AS displayName,
+       rp.slot_index AS slotIndex,
+       rp.is_host AS isHost,
+       rp.is_ready AS isReady,
+       rp.language,
+       rp.\`character\` AS \`character\`,
+       rp.status,
+       rp.joined_at AS joinedAt
+     FROM room_participants rp
+     JOIN users u ON u.id = rp.user_id
+     WHERE rp.room_id = ?
+       AND rp.left_at IS NULL
+     ORDER BY rp.slot_index ASC`,
+    [roomId],
+  );
+}
+
+export async function addRoomParticipant(input) {
+  const connection = await pool.getConnection();
+
+  try {
+    await connection.beginTransaction();
+
+    const roomRows = await connection.query(
+      `SELECT id, status, max_players AS maxPlayers
+       FROM rooms
+       WHERE id = ?
+       FOR UPDATE`,
+      [input.roomId],
+    );
+
+    if (roomRows.length === 0) {
+      await connection.rollback();
+      return { success: false, reason: "ROOM_NOT_FOUND" };
+    }
+
+    const room = roomRows[0];
+
+    if (room.status !== "WAITING") {
+      await connection.rollback();
+      return { success: false, reason: "ROOM_ALREADY_STARTED" };
+    }
+
+    const existingRows = await connection.query(
+      `SELECT id
+       FROM room_participants
+       WHERE room_id = ?
+         AND user_id = ?
+         AND left_at IS NULL
+       LIMIT 1`,
+      [input.roomId, input.userId],
+    );
+
+    if (existingRows.length > 0) {
+      await connection.rollback();
+      return { success: false, reason: "ROOM_ALREADY_JOINED" };
+    }
+
+    const activeParticipants = await connection.query(
+      `SELECT slot_index AS slotIndex
+       FROM room_participants
+       WHERE room_id = ?
+         AND left_at IS NULL
+       ORDER BY slot_index ASC`,
+      [input.roomId],
+    );
+
+    if (activeParticipants.length >= Number(room.maxPlayers)) {
+      await connection.rollback();
+      return { success: false, reason: "ROOM_FULL" };
+    }
+
+    const occupiedSlots = new Set(
+      activeParticipants.map((participant) => Number(participant.slotIndex)),
+    );
+    let slotIndex = 0;
+
+    while (occupiedSlots.has(slotIndex)) {
+      slotIndex += 1;
+    }
+
+    await connection.query(
+      `INSERT INTO room_participants (
+         room_id,
+         user_id,
+         slot_index,
+         is_host,
+         is_ready,
+         language,
+         \`character\`,
+         status
+       )
+       VALUES (?, ?, ?, FALSE, FALSE, ?, ?, 'WAITING')`,
+      [input.roomId, input.userId, slotIndex, input.language, input.character],
+    );
+
+    await connection.commit();
+    return { success: true };
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+}
+
+export async function leaveRoomAndSelectRandomHost(roomId, userId) {
+  const connection = await pool.getConnection();
+
+  try {
+    await connection.beginTransaction();
+
+    const roomRows = await connection.query(
+      `SELECT id, host_user_id AS hostUserId
+       FROM rooms
+       WHERE id = ?
+       FOR UPDATE`,
+      [roomId],
+    );
+
+    if (roomRows.length === 0) {
+      await connection.rollback();
+      return { success: false, reason: "ROOM_NOT_FOUND" };
+    }
+
+    const participantRows = await connection.query(
+      `SELECT id, is_host AS isHost
+       FROM room_participants
+       WHERE room_id = ?
+         AND user_id = ?
+         AND left_at IS NULL
+       LIMIT 1
+       FOR UPDATE`,
+      [roomId, userId],
+    );
+
+    if (participantRows.length === 0) {
+      await connection.rollback();
+      return { success: false, reason: "ROOM_NOT_JOINED" };
+    }
+
+    const participant = participantRows[0];
+
+    await connection.query(
+      `UPDATE room_participants
+       SET left_at = CURRENT_TIMESTAMP,
+           is_host = FALSE,
+           is_ready = FALSE,
+           status = 'LEFT'
+       WHERE id = ?`,
+      [participant.id],
+    );
+
+    let newHostUserId = null;
+    let roomClosed = false;
+
+    if (Boolean(participant.isHost)) {
+      const nextHostRows = await connection.query(
+        `SELECT id, user_id AS userId
+         FROM room_participants
+         WHERE room_id = ?
+           AND left_at IS NULL
+         ORDER BY RAND()
+         LIMIT 1
+         FOR UPDATE`,
+        [roomId],
+      );
+
+      if (nextHostRows.length === 0) {
+        await connection.query(
+          `UPDATE rooms
+           SET status = 'CLOSED'
+           WHERE id = ?`,
+          [roomId],
+        );
+        roomClosed = true;
+      } else {
+        const nextHost = nextHostRows[0];
+        newHostUserId = nextHost.userId;
+
+        await connection.query(
+          "UPDATE rooms SET host_user_id = ? WHERE id = ?",
+          [newHostUserId, roomId],
+        );
+        await connection.query(
+          `UPDATE room_participants
+           SET is_host = TRUE,
+               is_ready = FALSE,
+               status = 'HOST'
+           WHERE id = ?`,
+          [nextHost.id],
+        );
+      }
+    }
+
+    let currentPlayers = 0;
+
+    if (!roomClosed) {
+      const countRows = await connection.query(
+        `SELECT COUNT(*) AS count
+         FROM room_participants
+         WHERE room_id = ?
+           AND left_at IS NULL`,
+        [roomId],
+      );
+      currentPlayers = Number(countRows[0].count);
+    }
+
+    await connection.commit();
+
+    return {
+      success: true,
+      roomClosed,
+      newHostUserId,
+      currentPlayers,
+    };
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+}
+
+export async function closeRoom(roomId) {
+  const connection = await pool.getConnection();
+
+  try {
+    await connection.beginTransaction();
+
+    const result = await connection.query(
+      `UPDATE rooms
+       SET status = 'CLOSED'
+       WHERE id = ?
+         AND status = 'WAITING'`,
+      [roomId],
+    );
+
+    if (Number(result.affectedRows) === 0) {
+      await connection.rollback();
+      return false;
+    }
+
+    await connection.query(
+      `UPDATE room_participants
+       SET left_at = COALESCE(left_at, CURRENT_TIMESTAMP),
+           is_host = FALSE,
+           is_ready = FALSE,
+           status = 'LEFT'
+       WHERE room_id = ?
+         AND left_at IS NULL`,
+      [roomId],
+    );
+
+    await connection.commit();
+    return true;
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+}
+
+export async function markRoomStarted(roomId) {
+  const result = await pool.query(
+    `UPDATE rooms
+     SET status = 'STARTED'
+     WHERE id = ?
+       AND status = 'WAITING'`,
+    [roomId],
+  );
+
+  return Number(result.affectedRows) > 0;
+}
+
+// 방 생성 중 Valkey 저장이 실패한 경우에만 미완성 기록을 완전히 정리합니다.
+export async function hardDeleteRoom(roomId) {
+  const result = await pool.query("DELETE FROM rooms WHERE id = ?", [roomId]);
+
+  return Number(result.affectedRows) > 0;
+}
+
+// api/room/controller.js
+import { parseCreateRoomRequest } from "./dto/createRoomRequestDto.js";
+import { parseJoinRoomRequest, parseRoomId } from "./dto/joinRoomRequestDto.js";
+import {
+  createRoom,
+  getRoom,
+  getRooms,
+  joinRoom,
+  leaveRoom,
+  removeRoom,
+  startRoom,
+} from "./service.js";
+import { sendSuccess } from "#utils/responseHelper.js";
+
+export async function create(req, res, next) {
+  try {
+    const input = parseCreateRoomRequest(req.body);
+    const room = await createRoom(input, req.user.id);
+    return sendSuccess(res, room, 201);
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function list(req, res, next) {
+  try {
+    const rooms = await getRooms();
+    return sendSuccess(res, { rooms });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function detail(req, res, next) {
+  try {
+    const roomId = parseRoomId(req.params.id);
+    const room = await getRoom(roomId);
+    return sendSuccess(res, room);
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function join(req, res, next) {
+  try {
+    const roomId = parseRoomId(req.params.id);
+    const input = parseJoinRoomRequest(req.body);
+    const room = await joinRoom(roomId, req.user.id, input);
+    return sendSuccess(res, room);
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function leave(req, res, next) {
+  try {
+    const roomId = parseRoomId(req.params.id);
+    const result = await leaveRoom(roomId, req.user.id);
+    return sendSuccess(res, result);
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function start(req, res, next) {
+  try {
+    const roomId = parseRoomId(req.params.id);
+    const result = await startRoom(roomId, req.user.id);
+    return sendSuccess(res, result);
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function remove(req, res, next) {
+  try {
+    const roomId = parseRoomId(req.params.id);
+    const result = await removeRoom(roomId, req.user.id);
+    return sendSuccess(res, result);
+  } catch (error) {
+    return next(error);
+  }
+}
+
+// api/room/router.js
+import express from "express";
+
+import {
+  create,
+  detail,
+  join,
+  leave,
+  list,
+  remove,
+  start,
+} from "./controller.js";
+import { checkStart } from "#handler/manageRoomHandler.js";
+import { authenticate } from "#middleware/authMiddleware.js";
+import { validateGameStartQuery } from "#middleware/manageGameMiddleware.js";
+
+const router = express.Router();
+
+router.use(authenticate);
+router.post("/rooms", create);
+router.get("/rooms", list);
+router.get("/rooms/:id", detail);
+router.get("/rooms/:id/can-start", validateGameStartQuery, checkStart);
+router.post("/rooms/:id/start", start);
+router.post("/rooms/:id/join", join);
+router.post("/rooms/:id/leave", leave);
+router.delete("/rooms/:id", remove);
+
+export default router;
+
+// api/room/service.js
+import * as roomModel from "./model.js";
+import { toRoomResponse } from "./dto/roomResponseDto.js";
+import { redisClient } from "#config/redisConfig.js";
+import { AppError } from "#utils/appError.js";
+import { comparePassword, hashPassword } from "#utils/cryptoUtils.js";
+
+function roomStateKey(roomId) {
+  return `room:${roomId}:state`;
+}
+
+function roomParticipantsKey(roomId) {
+  return `room:${roomId}:participants`;
+}
+
+function roomReadyKey(roomId) {
+  return `room:${roomId}:ready`;
+}
+
+function roomNotFound() {
+  return new AppError(404, "ROOM_NOT_FOUND", "방을 찾을 수 없습니다.");
+}
+
+async function saveCreatedRoomState(room, hostUserId) {
+  await redisClient
+    .multi()
+    .hSet(roomStateKey(room.id), {
+      status: room.status,
+      hostUserId,
+      currentPlayers: String(room.currentPlayers),
+      maxPlayers: String(room.maxPlayers),
+      updatedAt: new Date().toISOString(),
+    })
+    .sAdd(roomParticipantsKey(room.id), hostUserId)
+    .exec();
+}
+
+async function saveJoinedRoomState(roomId, userId, room) {
+  await redisClient
+    .multi()
+    .sAdd(roomParticipantsKey(roomId), userId)
+    .hSet(roomStateKey(roomId), {
+      status: room.status,
+      hostUserId: room.hostUserId,
+      currentPlayers: String(room.currentPlayers),
+      maxPlayers: String(room.maxPlayers),
+      updatedAt: new Date().toISOString(),
+    })
+    .exec();
+}
+
+async function saveLeftRoomState(roomId, userId, result) {
+  const transaction = redisClient
+    .multi()
+    .sRem(roomParticipantsKey(roomId), userId)
+    .sRem(roomReadyKey(roomId), userId);
+
+  if (result.roomClosed) {
+    transaction.del([
+      roomStateKey(roomId),
+      roomParticipantsKey(roomId),
+      roomReadyKey(roomId),
+      `chat:room:${roomId}:recent`,
+      `room:kicked:${roomId}`,
+    ]);
+  } else {
+    const room = await roomModel.findRoomById(roomId);
+    transaction.hSet(roomStateKey(roomId), {
+      status: room.status,
+      hostUserId: room.hostUserId,
+      currentPlayers: String(result.currentPlayers),
+      maxPlayers: String(room.maxPlayers),
+      updatedAt: new Date().toISOString(),
+    });
+  }
+
+  await transaction.exec();
+}
+
+async function clearRoomState(roomId) {
+  await redisClient.del([
+    roomStateKey(roomId),
+    roomParticipantsKey(roomId),
+    roomReadyKey(roomId),
+    `chat:room:${roomId}:recent`,
+    `room:kicked:${roomId}`,
+  ]);
+}
+
+export async function createRoom(input, hostUserId) {
+  const passwordHash = input.password ? await hashPassword(input.password) : "";
+
+  const room = await roomModel.createRoomWithHost({
+    ...input,
+    passwordHash,
+    hostUserId,
+  });
+
+  try {
+    await saveCreatedRoomState(room, hostUserId);
+  } catch (error) {
+    await roomModel.hardDeleteRoom(room.id);
+    throw new AppError(
+      503,
+      "ROOM_STATE_UNAVAILABLE",
+      "방 상태 저장에 실패했습니다. 잠시 후 다시 시도해 주세요.",
+    );
+  }
+
+  return toRoomResponse(room);
+}
+
+export async function getRooms() {
+  const rooms = await roomModel.findRooms();
+  return rooms.map((room) => toRoomResponse(room));
+}
+
+export async function getRoom(roomId) {
+  const room = await roomModel.findRoomById(roomId);
+
+  if (!room) {
+    throw roomNotFound();
+  }
+
+  const participants = await roomModel.findRoomParticipants(roomId);
+  return toRoomResponse(room, participants);
+}
+
+export async function joinRoom(roomId, userId, input) {
+  const room = await roomModel.findRoomWithPassword(roomId);
+
+  if (!room) {
+    throw roomNotFound();
+  }
+
+  if (room.status !== "WAITING") {
+    throw new AppError(
+      409,
+      "ROOM_ALREADY_STARTED",
+      "이미 시작한 방에는 입장할 수 없습니다.",
+    );
+  }
+
+  if (room.passwordHash) {
+    const passwordMatches = input.password
+      ? await comparePassword(input.password, room.passwordHash)
+      : false;
+
+    if (!passwordMatches) {
+      throw new AppError(
+        403,
+        "ROOM_PASSWORD_INVALID",
+        "방 비밀번호가 올바르지 않습니다.",
+      );
+    }
+  }
+
+  const result = await roomModel.addRoomParticipant({
+    roomId,
+    userId,
+    language: input.language || room.language,
+    character: input.character || "char1",
+  });
+
+  const errors = {
+    ROOM_NOT_FOUND: roomNotFound(),
+    ROOM_ALREADY_STARTED: new AppError(
+      409,
+      "ROOM_ALREADY_STARTED",
+      "이미 시작한 방에는 입장할 수 없습니다.",
+    ),
+    ROOM_ALREADY_JOINED: new AppError(
+      409,
+      "ROOM_ALREADY_JOINED",
+      "이미 참가 중인 방입니다.",
+    ),
+    ROOM_FULL: new AppError(
+      409,
+      "ROOM_FULL",
+      "방의 최대 인원을 초과할 수 없습니다.",
+    ),
+  };
+
+  if (!result.success) {
+    throw (
+      errors[result.reason] ||
+      new AppError(409, "ROOM_JOIN_FAILED", "방에 입장할 수 없습니다.")
+    );
+  }
+
+  const updatedRoom = await roomModel.findRoomById(roomId);
+
+  try {
+    await saveJoinedRoomState(roomId, userId, updatedRoom);
+  } catch (error) {
+    await roomModel.leaveRoomAndSelectRandomHost(roomId, userId);
+    throw new AppError(
+      503,
+      "ROOM_STATE_UNAVAILABLE",
+      "방 상태 저장에 실패했습니다. 잠시 후 다시 시도해 주세요.",
+    );
+  }
+
+  const participants = await roomModel.findRoomParticipants(roomId);
+  return toRoomResponse(updatedRoom, participants);
+}
+
+export async function leaveRoom(roomId, userId) {
+  const result = await roomModel.leaveRoomAndSelectRandomHost(roomId, userId);
+
+  if (!result.success) {
+    if (result.reason === "ROOM_NOT_FOUND") {
+      throw roomNotFound();
+    }
+
+    throw new AppError(409, "ROOM_NOT_JOINED", "현재 참가 중인 방이 아닙니다.");
+  }
+
+  await saveLeftRoomState(roomId, userId, result);
+
+  if (result.roomClosed) {
+    return {
+      roomId,
+      roomClosed: true,
+      newHostUserId: null,
+    };
+  }
+
+  const room = await roomModel.findRoomById(roomId);
+  const participants = await roomModel.findRoomParticipants(roomId);
+
+  return {
+    roomClosed: false,
+    newHostUserId: result.newHostUserId,
+    room: toRoomResponse(room, participants),
+  };
+}
+
+export async function startRoom(roomId, userId) {
+  const room = await roomModel.findRoomById(roomId);
+
+  if (!room) {
+    throw roomNotFound();
+  }
+
+  if (String(room.hostUserId) !== String(userId)) {
+    throw new AppError(
+      403,
+      "ROOM_START_FORBIDDEN",
+      "방장만 게임을 시작할 수 있습니다.",
+    );
+  }
+
+  if (room.status !== "WAITING") {
+    throw new AppError(
+      409,
+      "ROOM_ALREADY_STARTED",
+      "대기 중인 방만 게임을 시작할 수 있습니다.",
+    );
+  }
+
+  const participants = await redisClient.sMembers(roomParticipantsKey(roomId));
+  const readyUserIds = await redisClient.sMembers(roomReadyKey(roomId));
+  const nonHostUserIds = participants.filter(
+    (participantId) => String(participantId) !== String(room.hostUserId),
+  );
+  const minimumPlayers = room.mode === "1/1" ? 2 : 3;
+
+  if (participants.length < minimumPlayers) {
+    throw new AppError(
+      409,
+      "ROOM_MINIMUM_PLAYERS_REQUIRED",
+      `게임 시작에는 최소 ${minimumPlayers}명이 필요합니다.`,
+    );
+  }
+
+  const readyUserIdSet = new Set(readyUserIds.map(String));
+  const allParticipantsReady =
+    nonHostUserIds.length > 0 &&
+    nonHostUserIds.every((participantId) =>
+      readyUserIdSet.has(String(participantId)),
+    );
+
+  if (!allParticipantsReady) {
+    throw new AppError(
+      409,
+      "ROOM_PARTICIPANTS_NOT_READY",
+      "방장을 제외한 모든 참가자가 READY 상태여야 합니다.",
+    );
+  }
+
+  const started = await roomModel.markRoomStarted(roomId);
+
+  if (!started) {
+    throw new AppError(
+      409,
+      "ROOM_ALREADY_STARTED",
+      "대기 중인 방만 게임을 시작할 수 있습니다.",
+    );
+  }
+
+  await redisClient.hSet(roomStateKey(roomId), {
+    status: "STARTED",
+    updatedAt: new Date().toISOString(),
+  });
+
+  return {
+    roomId,
+    status: "STARTED",
+    totalPlayers: participants.length,
+    readyPlayers: nonHostUserIds.length,
+  };
+}
+
+export async function removeRoom(roomId, userId) {
+  const room = await roomModel.findRoomWithPassword(roomId);
+
+  if (!room) {
+    throw roomNotFound();
+  }
+
+  if (room.hostUserId !== userId) {
+    throw new AppError(
+      403,
+      "ROOM_DELETE_FORBIDDEN",
+      "방장만 방을 삭제할 수 있습니다.",
+    );
+  }
+
+  if (room.status !== "WAITING") {
+    throw new AppError(
+      409,
+      "ROOM_DELETE_NOT_WAITING",
+      "대기 중인 방만 삭제할 수 있습니다.",
+    );
+  }
+
+  const closed = await roomModel.closeRoom(roomId);
+
+  if (!closed) {
+    throw new AppError(
+      409,
+      "ROOM_DELETE_NOT_WAITING",
+      "대기 중인 방만 삭제할 수 있습니다.",
+    );
+  }
+
+  await clearRoomState(roomId);
+
+  return { roomId, deleted: true };
+}
+
+// api/room/dto/userResponseDto.js
+
+// api/room/dto/joinRoomRequestDto.js
+import { AppError } from "#utils/appError.js";
+
+const CHARACTERS = new Set(["char1", "char2", "char3", "char4"]);
+
+function invalidJoinRequest(message) {
+  return new AppError(400, "INVALID_ROOM_JOIN_REQUEST", message);
+}
+
+export function parseJoinRoomRequest(body = {}) {
+  const password = typeof body.password === "string" ? body.password : "";
+  const language =
+    typeof body.language === "string" ? body.language.trim() : "";
+  const character =
+    typeof body.character === "string" ? body.character.trim() : "";
+
+  if (password.length > 64) {
+    throw invalidJoinRequest("방 비밀번호는 64자 이하로 입력해 주세요.");
+  }
+
+  if (language.length > 16) {
+    throw invalidJoinRequest("언어 정보는 16자 이하로 입력해 주세요.");
+  }
+
+  if (character && !CHARACTERS.has(character)) {
+    throw invalidJoinRequest(
+      "캐릭터는 char1부터 char4까지 선택할 수 있습니다.",
+    );
+  }
+
+  return {
+    password,
+    language: language || null,
+    character: character || null,
+  };
+}
+
+export function parseRoomId(value) {
+  const roomId = Number(value);
+
+  if (!Number.isInteger(roomId) || roomId < 1) {
+    throw invalidJoinRequest("올바른 방 ID가 필요합니다.");
+  }
+
+  return roomId;
+}
+
+// api/room/dto/createRoomRequestDto.js
+import { AppError } from "#utils/appError.js";
+
+const PLAYER_MODES = new Set(["1/1", "1/N"]);
+const GAME_MODES = new Set(["normal", "item"]);
+const DIFFICULTIES = new Set(["쉬움", "보통", "어려움"]);
+const LANGUAGES = new Set(["JAVA", "PYTHON", "C++", "HTML", "CSS", "RANDOM"]);
+
+function invalidRoomRequest(message) {
+  return new AppError(400, "INVALID_ROOM_REQUEST", message);
+}
+
+export function parseCreateRoomRequest(body = {}) {
+  const roomTitle =
+    typeof body.roomTitle === "string" ? body.roomTitle.trim() : "";
+  const playerMode =
+    typeof body.playerMode === "string" ? body.playerMode.trim() : "";
+  const gameMode =
+    typeof body.gameMode === "string" ? body.gameMode.trim() : "";
+  const difficulty =
+    typeof body.difficulty === "string" ? body.difficulty.trim() : "";
+  const language =
+    typeof body.language === "string" ? body.language.trim().toUpperCase() : "";
+  const roomPwd = typeof body.roomPwd === "string" ? body.roomPwd : "";
+  const problemCount = Number(body.problemCount);
+
+  if (roomTitle.length < 1 || roomTitle.length > 100) {
+    throw invalidRoomRequest("방 제목은 1자 이상 100자 이하로 입력해 주세요.");
+  }
+
+  if (!PLAYER_MODES.has(playerMode)) {
+    throw invalidRoomRequest("대전 방식은 1/1 또는 1/N만 선택할 수 있습니다.");
+  }
+
+  if (!GAME_MODES.has(gameMode)) {
+    throw invalidRoomRequest(
+      "게임 모드는 normal 또는 item만 선택할 수 있습니다.",
+    );
+  }
+
+  if (!DIFFICULTIES.has(difficulty)) {
+    throw invalidRoomRequest(
+      "난이도는 쉬움, 보통, 어려움 중에서 선택해 주세요.",
+    );
+  }
+
+  if (!LANGUAGES.has(language)) {
+    throw invalidRoomRequest("지원하지 않는 언어입니다.");
+  }
+
+  if (roomPwd.length > 64) {
+    throw invalidRoomRequest("방 비밀번호는 64자 이하로 입력해 주세요.");
+  }
+
+  if (
+    !Number.isInteger(problemCount) ||
+    problemCount < 3 ||
+    problemCount > 10
+  ) {
+    throw invalidRoomRequest("문제 수는 3개 이상 10개 이하로 선택해 주세요.");
+  }
+
+  return {
+    title: roomTitle,
+    mode: playerMode,
+    gameMode,
+    difficulty,
+    language,
+    password: roomPwd,
+    problemCount,
+    maxPlayers: playerMode === "1/1" ? 2 : 8,
+  };
+}
+
+// api/room/dto/loginRequestDto.js
+
+// api/room/dto/signupRequestDto.js
+
+// api/room/dto/roomResponseDto.js
+function toTimestamp(value) {
+  const timestamp = new Date(value).getTime();
+  return Number.isNaN(timestamp) ? null : timestamp;
+}
+
+export function toParticipantResponse(participant) {
+  return {
+    id: Number(participant.id),
+    userId: participant.userId,
+    name: participant.displayName,
+    slotIndex: Number(participant.slotIndex),
+    isHost: Boolean(participant.isHost),
+    isReady: Boolean(participant.isReady),
+    language: participant.language,
+    character: participant.character,
+    status: participant.status,
+    joinedAt: toTimestamp(participant.joinedAt),
+  };
+}
+
+export function toRoomResponse(room, participants) {
+  const currentPlayers = Number(room.currentPlayers || 0);
+  const maxPlayers = Number(room.maxPlayers);
+  const isPrivate = Boolean(room.isPrivate);
+
+  const response = {
+    id: Number(room.id),
+    title: room.title,
+    status: room.status,
+    players: `${currentPlayers}/${maxPlayers}`,
+    currentPlayers,
+    maxPlayers,
+    mode: room.mode,
+    gameMode: room.gameMode,
+    diff: room.difficulty,
+    lang: room.language,
+    pwd: isPrivate ? 'protected' : '',
+    isPrivate,
+    count: String(room.problemCount),
+    hostUserId: room.hostUserId,
+    createdAt: toTimestamp(room.createdAt),
+  };
+
+  if (Array.isArray(participants)) {
+    response.participants = participants.map(toParticipantResponse);
+  }
+
+  return response;
+}
+
+// api/health/controller.js
+import { sendSuccess } from "#utils/responseHelper.js";
+
+export function getHealth(req, res) {
+  return sendSuccess(res, {
+    status: "ok",
+    service: "rezero-backend",
+  });
+}
+
+// api/health/router.js
+import express from 'express';
+
+import { getHealth } from './controller.js';
+
+const router = express.Router();
+
+router.get('/', getHealth);
+
+export default router;
+
+// api/battle/model.js
+import { pool } from "#config/dbConfig.js";
+
+export async function createMatchWithProblems(input) {
+  const connection = await pool.getConnection();
+
+  try {
+    await connection.beginTransaction();
+
+    await connection.query(
+      `INSERT INTO matches (
+         id,
+         room_id,
+         status,
+         lang,
+         difficulty,
+         problem_count,
+         max_players,
+         room_mode,
+         game_mode,
+         round_seconds
+       )
+       VALUES (?, ?, 'IN_PROGRESS', ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        input.matchId,
+        input.roomId,
+        input.language,
+        input.difficulty,
+        input.problems.length,
+        input.maxPlayers,
+        input.roomMode,
+        input.gameMode,
+        input.roundSeconds,
+      ],
+    );
+
+    for (let index = 0; index < input.problems.length; index += 1) {
+      const problem = input.problems[index];
+
+      await connection.query(
+        `INSERT INTO match_problems (
+           match_id,
+           problem_index,
+           problem_id,
+           problem_snapshot
+         )
+         VALUES (?, ?, ?, ?)`,
+        [input.matchId, index, problem.id, JSON.stringify(problem)],
+      );
+    }
+
+    await connection.commit();
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+}
+
+export async function findMatchById(matchId) {
+  const rows = await pool.query(
+    `SELECT
+       id,
+       room_id AS roomId,
+       status,
+       lang AS language,
+       difficulty,
+       problem_count AS problemCount,
+       max_players AS maxPlayers,
+       room_mode AS roomMode,
+       game_mode AS gameMode,
+       round_seconds AS roundSeconds,
+       started_at AS startedAt,
+       finished_at AS finishedAt
+     FROM matches
+     WHERE id = ?
+     LIMIT 1`,
+    [matchId],
+  );
+
+  if (rows.length === 0) {
+    return null;
+  }
+
+  return rows[0];
+}
+
+export async function findMatchProblem(matchId, problemIndex) {
+  const rows = await pool.query(
+    `SELECT
+       m.id AS matchId,
+       m.room_id AS roomId,
+       m.status,
+       m.lang AS language,
+       m.game_mode AS gameMode,
+       mp.problem_index AS problemIndex,
+       mp.problem_snapshot AS problemSnapshot
+     FROM matches m
+     JOIN match_problems mp ON mp.match_id = m.id
+     WHERE m.id = ?
+       AND mp.problem_index = ?
+     LIMIT 1`,
+    [matchId, problemIndex],
+  );
+
+  if (rows.length === 0) {
+    return null;
+  }
+
+  return rows[0];
+}
+
+export async function isMatchParticipant(matchId, userId) {
+  const rows = await pool.query(
+    `SELECT rp.user_id AS userId
+     FROM matches m
+     JOIN room_participants rp ON rp.room_id = m.room_id
+     WHERE m.id = ?
+       AND rp.user_id = ?
+       AND rp.left_at IS NULL
+     LIMIT 1`,
+    [matchId, userId],
+  );
+
+  return rows.length > 0;
+}
+
+export async function consumeUserItem(userId, itemKey) {
+  const result = await pool.query(
+    `UPDATE user_items
+     SET quantity = quantity - 1
+     WHERE user_id = ?
+       AND item_key = ?
+       AND quantity > 0`,
+    [userId, itemKey],
+  );
+
+  return Number(result.affectedRows) === 1;
+}
+
+// api/battle/controller.js
+import { parseStartMatchRequest } from "./dto/startMatchRequestDto.js";
+import { toMatchStartResponse } from "./dto/matchStartResponseDto.js";
+import { parseSubmitAnswerRequest } from "./dto/submitAnswerRequestDto.js";
+import { parseUseItemRequest } from "./dto/useItemRequestDto.js";
+import { createBattle, submitBattleAnswer, useBattleItem } from "./service.js";
+import { sendSuccess } from "#utils/responseHelper.js";
+
+export async function start(req, res, next) {
+  try {
+    const input = parseStartMatchRequest(req.body);
+    const match = await createBattle(input.roomId, req.user.id, {
+      roundSeconds: input.roundSeconds,
+    });
+
+    return sendSuccess(res, toMatchStartResponse(match), 201);
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function submitAnswer(req, res, next) {
+  try {
+    const input = parseSubmitAnswerRequest(req.params, req.body);
+    const result = await submitBattleAnswer({
+      ...input,
+      userId: req.user.id,
+    });
+
+    return sendSuccess(res, result);
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function useItem(req, res, next) {
+  try {
+    const input = parseUseItemRequest(req.params, req.body);
+    const result = await useBattleItem({
+      ...input,
+      userId: req.user.id,
+    });
+
+    return sendSuccess(res, result);
+  } catch (error) {
+    return next(error);
+  }
+}
+
+// api/battle/router.js
+import express from "express";
+
+import { start, submitAnswer, useItem } from "./controller.js";
+import { authenticate } from "#middleware/authMiddleware.js";
+
+const router = express.Router();
+
+router.post("/matches/start", authenticate, start);
+router.post("/matches/:matchId/answers", authenticate, submitAnswer);
+router.post("/matches/:matchId/items/use", authenticate, useItem);
+
+export default router;
+
+// api/battle/service.js
+import { randomUUID } from "node:crypto";
+
+import * as battleModel from "./model.js";
+import * as roomModel from "../room/model.js";
+import { judgeProblemAnswer, selectProblems } from "../problem/service.js";
+import { AppError } from "#utils/appError.js";
+import { redisClient } from "#config/redisConfig.js";
+
+const DEFAULT_ROUND_SECONDS = 2700;
+const CORRECT_ANSWER_SCORE = 100;
+const ITEM_KEYS = new Set([
+  "paint",
+  "revealLength",
+  "revealPrev",
+  "lightning",
+  "timeReduce",
+  "scribble",
+  "blankBreak",
+  "buildCharge",
+]);
+
+function createMatchId(roomId) {
+  return `battle-${roomId}-${randomUUID()}`;
+}
+
+export async function createBattle(roomId, userId, options = {}) {
+  const room = await roomModel.findRoomById(roomId);
+
+  if (!room) {
+    throw new AppError(404, "ROOM_NOT_FOUND", "방을 찾을 수 없습니다.");
+  }
+
+  if (String(room.hostUserId) !== String(userId)) {
+    throw new AppError(
+      403,
+      "MATCH_START_FORBIDDEN",
+      "방장만 경기를 만들 수 있습니다.",
+    );
+  }
+
+  if (room.status !== "STARTED") {
+    throw new AppError(
+      409,
+      "ROOM_NOT_STARTED",
+      "게임 시작이 완료된 방에서만 경기를 만들 수 있습니다.",
+    );
+  }
+
+  const problems = await selectProblems({
+    difficulty: room.difficulty,
+    language: room.language,
+    count: Number(room.problemCount),
+  });
+  const matchId = createMatchId(room.id);
+  let roundSeconds = DEFAULT_ROUND_SECONDS;
+
+  if (options.roundSeconds !== undefined) {
+    roundSeconds = Number(options.roundSeconds);
+  }
+
+  if (!Number.isInteger(roundSeconds) || roundSeconds < 1) {
+    throw new AppError(
+      400,
+      "INVALID_ROUND_SECONDS",
+      "제한 시간은 1초 이상이어야 합니다.",
+    );
+  }
+
+  await battleModel.createMatchWithProblems({
+    matchId,
+    roomId: Number(room.id),
+    language: room.language,
+    difficulty: room.difficulty,
+    maxPlayers: Number(room.maxPlayers),
+    roomMode: room.mode,
+    gameMode: room.gameMode,
+    roundSeconds,
+    problems,
+  });
+
+  const match = await battleModel.findMatchById(matchId);
+
+  return {
+    ...match,
+    problems,
+  };
+}
+
+function parseProblemSnapshot(value) {
+  if (typeof value !== "string") {
+    return value;
+  }
+
+  try {
+    return JSON.parse(value);
+  } catch (error) {
+    throw new AppError(500, "INVALID_MATCH_PROBLEM", "경기 문제 정보를 읽을 수 없습니다.");
+  }
+}
+
+function submittedKey(matchId, problemIndex) {
+  return "battle:submitted:" + matchId + ":" + problemIndex;
+}
+
+function scoreKey(matchId) {
+  return "battle:scores:" + matchId;
+}
+
+async function getMatchProblemForUser(matchId, problemIndex, userId) {
+  const matchProblem = await battleModel.findMatchProblem(matchId, problemIndex);
+
+  if (!matchProblem) {
+    throw new AppError(404, "MATCH_PROBLEM_NOT_FOUND", "경기 문제를 찾을 수 없습니다.");
+  }
+
+  if (matchProblem.status !== "IN_PROGRESS") {
+    throw new AppError(409, "MATCH_NOT_IN_PROGRESS", "진행 중인 경기만 제출할 수 있습니다.");
+  }
+
+  const isParticipant = await battleModel.isMatchParticipant(matchId, userId);
+  if (!isParticipant) {
+    throw new AppError(403, "MATCH_PARTICIPANT_REQUIRED", "경기 참가자만 요청할 수 있습니다.");
+  }
+
+  return matchProblem;
+}
+
+export async function submitBattleAnswer(input) {
+  const matchProblem = await getMatchProblemForUser(
+    input.matchId,
+    input.problemIndex,
+    input.userId,
+  );
+  const key = submittedKey(input.matchId, input.problemIndex);
+  const alreadySubmitted = await redisClient.sIsMember(key, String(input.userId));
+
+  if (alreadySubmitted) {
+    throw new AppError(409, "PROBLEM_ALREADY_SUBMITTED", "이미 제출한 문제입니다.");
+  }
+
+  const isCorrect = judgeProblemAnswer({
+    problem: parseProblemSnapshot(matchProblem.problemSnapshot),
+    language: matchProblem.language,
+    answers: input.answers,
+    selectedOption: input.selectedOption,
+  });
+  const currentScore = Number(
+    (await redisClient.hGet(scoreKey(input.matchId), String(input.userId))) || 0,
+  );
+  const awardedScore = isCorrect ? CORRECT_ANSWER_SCORE : 0;
+  const score = currentScore + awardedScore;
+
+  await redisClient
+    .multi()
+    .sAdd(key, String(input.userId))
+    .expire(key, 60 * 60)
+    .hSet(scoreKey(input.matchId), String(input.userId), String(score))
+    .expire(scoreKey(input.matchId), 60 * 60)
+    .exec();
+
+  return {
+    matchId: input.matchId,
+    problemIndex: input.problemIndex,
+    isCorrect,
+    awardedScore,
+    score,
+  };
+}
+
+export async function useBattleItem(input) {
+  if (!ITEM_KEYS.has(input.itemKey)) {
+    throw new AppError(400, "INVALID_ITEM_KEY", "지원하지 않는 아이템입니다.");
+  }
+
+  const matchProblem = await getMatchProblemForUser(
+    input.matchId,
+    input.problemIndex,
+    input.userId,
+  );
+
+  if (matchProblem.gameMode !== "item") {
+    throw new AppError(409, "ITEM_MODE_REQUIRED", "아이템 모드에서만 사용할 수 있습니다.");
+  }
+
+  const consumed = await battleModel.consumeUserItem(input.userId, input.itemKey);
+  if (!consumed) {
+    throw new AppError(409, "ITEM_NOT_AVAILABLE", "보유한 아이템이 없습니다.");
+  }
+
+  return {
+    matchId: input.matchId,
+    problemIndex: input.problemIndex,
+    itemKey: input.itemKey,
+    targetUserId: input.targetUserId || null,
+    success: true,
+  };
+}
+
+// api/battle/dto/useItemRequestDto.js
+import { AppError } from "#utils/appError.js";
+
+function invalidRequest(message) {
+  return new AppError(400, "INVALID_ITEM_REQUEST", message);
+}
+
+export function parseUseItemRequest(params = {}, body = {}) {
+  const matchId = typeof params.matchId === "string" ? params.matchId.trim() : "";
+  const problemIndex = Number(body.problemIndex);
+  const itemKey = typeof body.itemKey === "string" ? body.itemKey.trim() : "";
+  const targetUserId =
+    typeof body.targetUserId === "string" ? body.targetUserId.trim() : "";
+
+  if (!matchId) {
+    throw invalidRequest("경기 ID가 필요합니다.");
+  }
+
+  if (!Number.isInteger(problemIndex) || problemIndex < 0) {
+    throw invalidRequest("문제 번호가 올바르지 않습니다.");
+  }
+
+  if (!itemKey) {
+    throw invalidRequest("아이템 종류가 필요합니다.");
+  }
+
+  return {
+    matchId,
+    problemIndex,
+    itemKey,
+    targetUserId: targetUserId || null,
+  };
+}
+
+// api/battle/dto/userResponseDto.js
+
+// api/battle/dto/loginRequestDto.js
+
+// api/battle/dto/startMatchRequestDto.js
+import { AppError } from "#utils/appError.js";
+
+function invalidStartRequest(message) {
+  return new AppError(400, "INVALID_MATCH_START_REQUEST", message);
+}
+
+export function parseStartMatchRequest(body = {}) {
+  const roomId = Number(body.roomId);
+
+  if (!Number.isInteger(roomId) || roomId < 1) {
+    throw invalidStartRequest("올바른 방 ID를 입력해 주세요.");
+  }
+
+  let roundSeconds;
+
+  if (body.roundSeconds !== undefined) {
+    roundSeconds = Number(body.roundSeconds);
+
+    if (!Number.isInteger(roundSeconds) || roundSeconds < 1) {
+      throw invalidStartRequest("제한 시간은 1초 이상이어야 합니다.");
+    }
+  }
+
+  return {
+    roomId,
+    roundSeconds,
+  };
+}
+
+// api/battle/dto/submitAnswerRequestDto.js
+import { AppError } from "#utils/appError.js";
+
+function invalidRequest(message) {
+  return new AppError(400, "INVALID_ANSWER_REQUEST", message);
+}
+
+export function parseSubmitAnswerRequest(params = {}, body = {}) {
+  const matchId = typeof params.matchId === "string" ? params.matchId.trim() : "";
+  const problemIndex = Number(body.problemIndex);
+  const answers = Array.isArray(body.answers) ? body.answers : [];
+  const selectedOption = body.selectedOption;
+
+  if (!matchId) {
+    throw invalidRequest("경기 ID가 필요합니다.");
+  }
+
+  if (!Number.isInteger(problemIndex) || problemIndex < 0) {
+    throw invalidRequest("문제 번호가 올바르지 않습니다.");
+  }
+
+  if (
+    !answers.every(function (answer) {
+      return typeof answer === "string";
+    })
+  ) {
+    throw invalidRequest("답안은 문자열 배열로 입력해 주세요.");
+  }
+
+  if (selectedOption !== undefined && !Number.isInteger(Number(selectedOption))) {
+    throw invalidRequest("객관식 답안이 올바르지 않습니다.");
+  }
+
+  return {
+    matchId,
+    problemIndex,
+    answers,
+    selectedOption:
+      selectedOption === undefined ? undefined : Number(selectedOption),
+  };
+}
+
+// api/battle/dto/signupRequestDto.js
+
+// api/battle/dto/matchStartResponseDto.js
+function toPublicProblem(problem) {
+  return {
+    id: problem.id,
+    type: problem.type,
+    difficulty: problem.difficulty,
+    title: problem.title,
+    question: problem.question,
+    options: problem.options,
+    correctIndex: problem.correctIndex,
+    explanation: problem.explanation,
+    description: problem.description,
+    input: problem.input,
+    output: problem.output,
+    visual: problem.visual,
+    capabilityOverrides: problem.capabilityOverrides,
+  };
+}
+
+export function toMatchStartResponse(match) {
+  return {
+    matchId: match.id,
+    roomId: Number(match.roomId),
+    status: match.status,
+    language: match.language,
+    difficulty: match.difficulty,
+    problemCount: Number(match.problemCount),
+    maxPlayers: Number(match.maxPlayers),
+    roomMode: match.roomMode,
+    gameMode: match.gameMode,
+    roundSeconds: Number(match.roundSeconds),
+    startedAt: match.startedAt,
+    problems: match.problems.map(toPublicProblem),
+  };
+}
+
+// api/user/model.js
+import { pool } from "#config/dbConfig.js";
+
+export async function createUser(input) {
+  await pool.query(
+    `INSERT INTO users (id, username, password_hash, display_name)
+     VALUES (?, ?, ?, ?)`,
+    [input.id, input.username, input.passwordHash, input.displayName],
+  );
+
+  return findUserById(input.id);
+}
+
+export async function isUsernameTaken(username) {
+  const rows = await pool.query(
+    "SELECT COUNT(*) AS count FROM users WHERE username = ?",
+    [username],
+  );
+
+  return Number(rows[0].count) > 0;
+}
+
+export async function findUserByUsername(username) {
+  const rows = await pool.query(
+    `SELECT
+       id,
+       username,
+       password_hash AS passwordHash,
+       display_name AS displayName,
+       gold,
+       rating_score AS ratingScore,
+       created_at AS createdAt
+     FROM users
+     WHERE username = ?
+     LIMIT 1`,
+    [username],
+  );
+
+  if (rows.length === 0) {
+    return null;
+  }
+
+  return rows[0];
+}
+
+export async function findUserById(id) {
+  const rows = await pool.query(
+    `SELECT
+       id,
+       username,
+       display_name AS displayName,
+       gold,
+       rating_score AS ratingScore,
+       created_at AS createdAt
+     FROM users
+     WHERE id = ?
+     LIMIT 1`,
+    [id],
+  );
+
+  if (rows.length === 0) {
+    return null;
+  }
+
+  return rows[0];
+}
+
+// api/user/controller.js
+import { parseLoginRequest } from "./dto/loginRequestDto.js";
+import { parseSignupRequest } from "./dto/signupRequestDto.js";
+import { getCurrentUser, loginUser, signupUser } from "./service.js";
+import { sendSuccess } from "#utils/responseHelper.js";
+
+export async function signup(req, res, next) {
+  try {
+    const input = parseSignupRequest(req.body);
+    const result = await signupUser(input);
+    return sendSuccess(res, result, 201);
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function login(req, res, next) {
+  try {
+    const input = parseLoginRequest(req.body);
+    const result = await loginUser(input);
+    return sendSuccess(res, result);
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function getMe(req, res, next) {
+  try {
+    const user = await getCurrentUser(req.user.id);
+    return sendSuccess(res, user);
+  } catch (error) {
+    return next(error);
+  }
+}
+
+// api/user/router.js
+import express from "express";
+
+import { getMe, login, signup } from "./controller.js";
+import { authenticate } from "#middleware/authMiddleware.js";
+
+const router = express.Router();
+
+router.post("/auth/signup", signup);
+router.post("/auth/login", login);
+router.get("/users/me", authenticate, getMe);
+
+export default router;
+
+// api/user/service.js
+import * as userModel from "./model.js";
+import { toSignupUserResponse, toUserResponse } from "./dto/userResponseDto.js";
+import { ERROR_CODE } from "#constants/errorCode.js";
+import { AppError } from "#utils/appError.js";
+import {
+  comparePassword,
+  createAccessToken,
+  hashPassword,
+} from "#utils/cryptoUtils.js";
+
+function getModelFunction(name) {
+  const modelFunction = userModel[name];
+
+  if (typeof modelFunction !== "function") {
+    throw new AppError(
+      503,
+      ERROR_CODE.AUTH_DB_NOT_READY,
+      "사용자 DB 함수 연결 후 진행하시면 됩니다.",
+    );
+  }
+
+  return modelFunction;
+}
+
+export async function signupUser(input) {
+  const isUsernameTaken = getModelFunction("isUsernameTaken");
+  const createUser = getModelFunction("createUser");
+
+  if (await isUsernameTaken(input.username)) {
+    throw new AppError(
+      409,
+      ERROR_CODE.USERNAME_ALREADY_EXISTS,
+      "이미 사용 중인 아이디입니다.",
+    );
+  }
+
+  const user = await createUser({
+    id: `user_${Date.now()}`,
+    username: input.username,
+    passwordHash: await hashPassword(input.password),
+    displayName: input.displayName,
+  });
+
+  return {
+    user: toSignupUserResponse(user),
+    token: createAccessToken(user.id),
+  };
+}
+
+export async function loginUser(input) {
+  const findUserByUsername = getModelFunction("findUserByUsername");
+  const user = await findUserByUsername(input.username);
+
+  if (
+    !user ||
+    !(await comparePassword(
+      input.password,
+      user.passwordHash ?? user.password_hash,
+    ))
+  ) {
+    throw new AppError(
+      401,
+      ERROR_CODE.INVALID_CREDENTIALS,
+      "아이디 또는 비밀번호가 올바르지 않습니다.",
+    );
+  }
+
+  return {
+    user: toUserResponse(user),
+    token: createAccessToken(user.id),
+  };
+}
+
+export async function getCurrentUser(userId) {
+  const findUserById = getModelFunction("findUserById");
+  const user = await findUserById(userId);
+
+  if (!user) {
+    throw new AppError(
+      404,
+      ERROR_CODE.USER_NOT_FOUND,
+      "사용자를 찾을 수 없습니다.",
+    );
+  }
+
+  return toUserResponse(user);
+}
+
+// api/user/dto/userResponseDto.js
+export function toUserResponse(user) {
+  return {
+    id: user.id,
+    username: user.username,
+    displayName: user.displayName ?? user.display_name,
+    gold: Number(user.gold ?? 0),
+    ratingScore: Number(user.ratingScore ?? user.rating_score ?? 1000),
+  };
+}
+
+export function toSignupUserResponse(user) {
+  const response = toUserResponse(user);
+
+  return {
+    id: response.id,
+    username: response.username,
+    displayName: response.displayName,
+  };
+}
+
+// api/user/dto/loginRequestDto.js
+import { ERROR_CODE } from "#constants/errorCode.js";
+import { AppError } from "#utils/appError.js";
+
+export function parseLoginRequest(body = {}) {
+  const username =
+    typeof body.username === "string" ? body.username.trim().toLowerCase() : "";
+  const password = typeof body.password === "string" ? body.password : "";
+
+  if (!username || !password) {
+    throw new AppError(
+      400,
+      ERROR_CODE.INVALID_REQUEST,
+      "아이디와 비밀번호를 모두 입력해 주세요.",
+    );
+  }
+
+  return { username, password };
+}
+
+// api/user/dto/signupRequestDto.js
+import { ERROR_CODE } from "#constants/errorCode.js";
+import { AppError } from "#utils/appError.js";
+
+const USERNAME_PATTERN = /^[a-z0-9_]{3,32}$/;
+
+export function parseSignupRequest(body = {}) {
+  const username =
+    typeof body.username === "string" ? body.username.trim().toLowerCase() : "";
+  const password = typeof body.password === "string" ? body.password : "";
+  const displayName =
+    typeof body.displayName === "string"
+      ? body.displayName.trim() || username
+      : username;
+
+  if (!USERNAME_PATTERN.test(username)) {
+    throw new AppError(
+      400,
+      ERROR_CODE.INVALID_USERNAME,
+      "아이디는 3자 이상의 영문 소문자, 숫자, 밑줄만 사용할 수 있습니다.",
+    );
+  }
+
+  if (password.length < 4) {
+    throw new AppError(
+      400,
+      ERROR_CODE.INVALID_PASSWORD,
+      "비밀번호는 4자 이상 입력해 주세요.",
+    );
+  }
+
+  if (displayName.length > 20) {
+    throw new AppError(
+      400,
+      ERROR_CODE.INVALID_DISPLAY_NAME,
+      "닉네임은 20자 이하로 입력해 주세요.",
+    );
+  }
+
+  return { username, password, displayName };
+}
+
+// api/review/model.js
+
+// api/review/controller.js
+
+// api/review/router.js
+
+// api/review/service.js
+
+// api/review/dto/userResponseDto.js
+
+// api/review/dto/loginRequestDto.js
+
+// api/review/dto/signupRequestDto.js
+
