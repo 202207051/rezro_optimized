@@ -1,89 +1,5 @@
-// dto/manageGameDto.js
-export class GameStartDto {
-  constructor({
-    roomId,
-    canStart,
-    reason,
-    totalPlayers,
-    nonHostPlayers,
-    readyNonHostPlayers,
-  }) {
-    this.roomId = roomId;
-    this.canStart = canStart;
-    this.reason = reason;
-    this.playerSummary = {
-      totalPlayers: totalPlayers,
-      nonHostPlayers: nonHostPlayers,
-      readyNonHostPlayers: readyNonHostPlayers,
-    };
-  }
+// src/dto/socketDto.js
 
-  toJSON() {
-    return {
-      roomId: this.roomId,
-      canStart: this.canStart,
-      reason: this.reason,
-      playerSummary: this.playerSummary,
-    };
-  }
-}
-
-
-// dto/manageRoomDto.js
-import { ROOM_STATUS } from "#config/manageRoomConfig.js";
-
-export class ManageRoomDto {
-  constructor(room) {
-    this.roomId = room.id;
-    this.title = room.title;
-    this.status = room.status;
-    this.mode = room.mode;
-    this.gameMode = room.game_mode;
-    this.difficulty = room.difficulty;
-    this.language = room.language;
-    this.problemCount = room.problem_count;
-    this.hostUserId = room.host_user_id;
-    this.createdAt = room.created_at;
-
-    this.currentPlayers = parseInt(room.current_players || 0, 10);
-    this.maxPlayers = parseInt(room.max_players || 0, 10);
-
-    this.isLocked = Boolean(room.password && room.password.trim() !== "");
-    this.isJoinable = this.calculateIsJoinable();
-  }
-
-  calculateIsJoinable() {
-    if (this.status === ROOM_STATUS.STARTED) {
-      return false;
-    }
-    if (this.currentPlayers >= this.maxPlayers) {
-      return false;
-    }
-    return true;
-  }
-
-  toJSON() {
-    return {
-      roomId: this.roomId,
-      title: this.title,
-      status: this.status,
-      mode: this.mode,
-      gameMode: this.gameMode,
-      difficulty: this.difficulty,
-      language: this.language,
-      problemCount: this.problemCount,
-      hostUserId: this.hostUserId,
-      createdAt: this.createdAt,
-      currentPlayers: this.currentPlayers,
-      maxPlayers: this.maxPlayers,
-      isLocked: this.isLocked,
-      isJoinable: this.isJoinable,
-    };
-  }
-}
-
-
-// dto/socketDto.js
 import { socketConfig } from "#config/socketConfig.js";
 
 export function validateJoinRoom(data) {
@@ -220,5 +136,95 @@ export const socketDto = {
     };
   },
 };
+
+
+
+// src/dto/manageGameDto.js
+
+export class GameStartDto {
+  constructor({
+    roomId,
+    canStart,
+    reason,
+    totalPlayers,
+    nonHostPlayers,
+    readyNonHostPlayers,
+  }) {
+    this.roomId = roomId;
+    this.canStart = canStart;
+    this.reason = reason;
+    this.playerSummary = {
+      totalPlayers: totalPlayers,
+      nonHostPlayers: nonHostPlayers,
+      readyNonHostPlayers: readyNonHostPlayers,
+    };
+  }
+
+  toJSON() {
+    return {
+      roomId: this.roomId,
+      canStart: this.canStart,
+      reason: this.reason,
+      playerSummary: this.playerSummary,
+    };
+  }
+}
+
+
+
+// src/dto/manageRoomDto.js
+
+import { ROOM_STATUS } from "#config/manageRoomConfig.js";
+
+export class ManageRoomDto {
+  constructor(room) {
+    this.roomId = room.id;
+    this.title = room.title;
+    this.status = room.status;
+    this.mode = room.mode;
+    this.gameMode = room.game_mode;
+    this.difficulty = room.difficulty;
+    this.language = room.language;
+    this.problemCount = room.problem_count;
+    this.hostUserId = room.host_user_id;
+    this.createdAt = room.created_at;
+
+    this.currentPlayers = parseInt(room.current_players || 0, 10);
+    this.maxPlayers = parseInt(room.max_players || 0, 10);
+
+    this.isLocked = Boolean(room.password && room.password.trim() !== "");
+    this.isJoinable = this.calculateIsJoinable();
+  }
+
+  calculateIsJoinable() {
+    if (this.status === ROOM_STATUS.STARTED) {
+      return false;
+    }
+    if (this.currentPlayers >= this.maxPlayers) {
+      return false;
+    }
+    return true;
+  }
+
+  toJSON() {
+    return {
+      roomId: this.roomId,
+      title: this.title,
+      status: this.status,
+      mode: this.mode,
+      gameMode: this.gameMode,
+      difficulty: this.difficulty,
+      language: this.language,
+      problemCount: this.problemCount,
+      hostUserId: this.hostUserId,
+      createdAt: this.createdAt,
+      currentPlayers: this.currentPlayers,
+      maxPlayers: this.maxPlayers,
+      isLocked: this.isLocked,
+      isJoinable: this.isJoinable,
+    };
+  }
+}
+
 
 

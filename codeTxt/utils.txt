@@ -1,16 +1,5 @@
-// utils/appError.js
-export class AppError extends Error {
-  constructor(status, code, message, details) {
-    super(message);
-    this.name = "AppError";
-    this.status = status;
-    this.code = code;
-    this.details = details;
-  }
-}
+// src/utils/cryptoUtils.js
 
-
-// utils/cryptoUtils.js
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 
@@ -45,10 +34,28 @@ export function verifyAccessToken(token) {
 }
 
 
-// utils/dateUtils.js
+
+// src/utils/dateUtils.js
 
 
-// utils/responseHelper.js
+
+
+// src/utils/appError.js
+
+export class AppError extends Error {
+  constructor(status, code, message, details) {
+    super(message);
+    this.name = "AppError";
+    this.status = status;
+    this.code = code;
+    this.details = details;
+  }
+}
+
+
+
+// src/utils/responseHelper.js
+
 export function sendSuccess(res, data, status = 200) {
   return res.status(status).json(data);
 }
@@ -61,5 +68,6 @@ export function sendError(res, status, code, message, details) {
 
   return res.status(status).json({ error: error });
 }
+
 
 

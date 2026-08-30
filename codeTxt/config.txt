@@ -1,56 +1,54 @@
-// config/authConfig.js
-import dotenv from "dotenv";
-import path from "path";
-import { fileURLToPath } from "url";
+// src/config/redisConfig.js
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-dotenv.config({ path: path.resolve(__dirname, "../../.env") });
-
-function getJwtSecret() {
-  if (process.env.JWT_SECRET) {
-    return process.env.JWT_SECRET;
-  }
-  return "default_jwt_secret";
-}
-
-export const authConfig = {
-  jwtSecret: getJwtSecret(),
-  jwtExpiresIn: "1h",
-  tokenRedisTTL: 3600,
-  saltRounds: 10,
-};
-
-
-// config/dbConfig.js
 import "#config/envConfig.js";
 
-import mariadb from "mariadb";
+import { createClient } from "redis";
 
-export const pool = mariadb.createPool({
-  host: process.env.DB_HOST,
-  port: Number(process.env.DB_PORT || 3306),
-  user: process.env.DB_USER,
-  password: process.env.DB_PASSWORD,
-  database: process.env.DB_NAME,
-  connectionLimit: Number(process.env.DB_CONNECTION_LIMIT || 5),
+function getRedisHost() {
+  if (process.env.REDIS_HOST) {
+    return process.env.REDIS_HOST;
+  }
+  return "127.0.0.1";
+}
+
+function getRedisPort() {
+  if (process.env.REDIS_PORT) {
+    return Number(process.env.REDIS_PORT);
+  }
+  return 6379;
+}
+
+function getRedisPassword() {
+  if (process.env.REDIS_PASSWORD) {
+    return process.env.REDIS_PASSWORD;
+  }
+  return undefined;
+}
+
+export const redisClient = createClient({
+  socket: {
+    host: getRedisHost(),
+    port: getRedisPort(),
+  },
+  password: getRedisPassword(),
 });
 
-export async function testDbConnection() {
-  let connection;
+redisClient.on("error", function (error) {
+  console.error("[Valkey] error:", error.message);
+});
 
-  try {
-    connection = await pool.getConnection();
-    await connection.query("SELECT 1");
-    console.log("[MariaDB] connected");
-  } finally {
-    if (connection) {
-      connection.release();
-    }
+export async function connectRedis() {
+  if (!redisClient.isOpen) {
+    await redisClient.connect();
   }
+  await redisClient.ping();
+  console.log("[Valkey] connected");
 }
 
 
-// config/envConfig.js
+
+// src/config/envConfig.js
+
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import dotenv from "dotenv";
@@ -104,7 +102,65 @@ export const env = {
 };
 
 
-// config/manageRoomConfig.js
+
+// src/config/authConfig.js
+
+import dotenv from "dotenv";
+import path from "path";
+import { fileURLToPath } from "url";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+dotenv.config({ path: path.resolve(__dirname, "../../.env") });
+
+function getJwtSecret() {
+  if (process.env.JWT_SECRET) {
+    return process.env.JWT_SECRET;
+  }
+  return "default_jwt_secret";
+}
+
+export const authConfig = {
+  jwtSecret: getJwtSecret(),
+  jwtExpiresIn: "1h",
+  tokenRedisTTL: 3600,
+  saltRounds: 10,
+};
+
+
+
+// src/config/dbConfig.js
+
+import "#config/envConfig.js";
+
+import mariadb from "mariadb";
+
+export const pool = mariadb.createPool({
+  host: process.env.DB_HOST,
+  port: Number(process.env.DB_PORT || 3306),
+  user: process.env.DB_USER,
+  password: process.env.DB_PASSWORD,
+  database: process.env.DB_NAME,
+  connectionLimit: Number(process.env.DB_CONNECTION_LIMIT || 5),
+});
+
+export async function testDbConnection() {
+  let connection;
+
+  try {
+    connection = await pool.getConnection();
+    await connection.query("SELECT 1");
+    console.log("[MariaDB] connected");
+  } finally {
+    if (connection) {
+      connection.release();
+    }
+  }
+}
+
+
+
+// src/config/manageRoomConfig.js
+
 export const ROOM_STATUS = Object.freeze({
   WAITING: "WAITING",
   STARTED: "STARTED",
@@ -114,54 +170,9 @@ export const DEFAULT_ROOM_LIMIT = 3;
 export const MIN_PLAYERS_TO_START = 2;
 
 
-// config/redisConfig.js
-import "#config/envConfig.js";
 
-import { createClient } from "redis";
+// src/config/socketConfig.js
 
-function getRedisHost() {
-  if (process.env.REDIS_HOST) {
-    return process.env.REDIS_HOST;
-  }
-  return "127.0.0.1";
-}
-
-function getRedisPort() {
-  if (process.env.REDIS_PORT) {
-    return Number(process.env.REDIS_PORT);
-  }
-  return 6379;
-}
-
-function getRedisPassword() {
-  if (process.env.REDIS_PASSWORD) {
-    return process.env.REDIS_PASSWORD;
-  }
-  return undefined;
-}
-
-export const redisClient = createClient({
-  socket: {
-    host: getRedisHost(),
-    port: getRedisPort(),
-  },
-  password: getRedisPassword(),
-});
-
-redisClient.on("error", function (error) {
-  console.error("[Valkey] error:", error.message);
-});
-
-export async function connectRedis() {
-  if (!redisClient.isOpen) {
-    await redisClient.connect();
-  }
-  await redisClient.ping();
-  console.log("[Valkey] connected");
-}
-
-
-// config/socketConfig.js
 import { Server } from "socket.io";
 import { socketAuthMiddleware } from "#controller/socketController.js";
 import { registerSocketHandlers } from "#handler/socketHandler.js";
@@ -188,5 +199,6 @@ export function initSocket(server) {
 
   return io;
 }
+
 
 

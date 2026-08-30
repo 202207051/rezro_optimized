@@ -1,4 +1,15 @@
-// models/dummyData.sql
+// src/models/README.md
+
+# DB 변경 파일
+
+테이블을 만들거나 수정하는 SQL은 여기에 순서대로 남긴다.
+
+파일 이름 예시: `001_create_users.sql`, `002_create_rooms.sql`
+
+
+
+// src/models/dummyData.sql
+
 SET
     FOREIGN_KEY_CHECKS = 0;
 
@@ -3667,7 +3678,9 @@ VALUES
 SET
     FOREIGN_KEY_CHECKS = 1;
 
-// models/osDB.sql
+
+// src/models/osDB.sql
+
 -- 1. users (계정 및 프로필)
 CREATE TABLE IF NOT EXISTS users (
     id VARCHAR(64) PRIMARY KEY, -- user_{timestamp} 형식
@@ -3854,12 +3867,5 @@ CREATE TABLE IF NOT EXISTS review_invites (
     FOREIGN KEY (to_user_id) REFERENCES users(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-
-// models/README.md
-# DB 변경 파일
-
-테이블을 만들거나 수정하는 SQL은 여기에 순서대로 남긴다.
-
-파일 이름 예시: `001_create_users.sql`, `002_create_rooms.sql`
 
 
