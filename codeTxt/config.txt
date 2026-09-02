@@ -1,0 +1,176 @@
+// config/gameConfig.js
+
+import path from "path";
+import dotenv from "dotenv";
+
+dotenv.config();
+
+const currentDirectory = import.meta.dirname;
+
+const projectRoot = path.resolve(currentDirectory, "../../..");
+
+const backendDirectory = path.resolve(currentDirectory, "../..");
+
+let sharedDirectory;
+if (process.env.SHARED_DIR) {
+  sharedDirectory = path.resolve(process.env.SHARED_DIR);
+} else {
+  sharedDirectory = path.resolve(projectRoot, "shared");
+}
+
+export const GAME_CONTAINER_CONFIG = {
+  containerName: "build_compiler_sandbox",
+  baseImage: "gameroom-base-image",
+  sandboxPath: path.resolve(sharedDirectory, "sandbox"),
+  resultboxPath: path.resolve(sharedDirectory, "resultbox"),
+
+  build: {
+    contextPath: projectRoot,
+    dockerfilePath: path.resolve(
+      backendDirectory,
+      "infra/dockerimage/game.Dockerfile",
+    ),
+    imageTag: "gameroom-base-image:latest",
+    buildOptions: ["--no-cache"],
+  },
+
+  languages: {
+    c: { compiler: "gcc", ext: "c" },
+    cpp: { compiler: "g++", ext: "cpp" },
+    python: { compiler: "python3", ext: "py" },
+    py: { compiler: "python3", ext: "py" },
+    java: { compiler: "javac", ext: "java" },
+    html: { compiler: "htmlhint", ext: "html" },
+    css: { compiler: "stylelint", ext: "css" },
+  },
+};
+
+
+
+// config/prepareInfoConfig.js
+
+import path from "path";
+import dotenv from "dotenv";
+
+dotenv.config();
+
+const currentDirectory = import.meta.dirname;
+
+const projectRoot = path.resolve(currentDirectory, "../../..");
+
+const backendDirectory = path.resolve(currentDirectory, "../..");
+
+let sharedDirectory;
+if (process.env.SHARED_DIR) {
+  sharedDirectory = path.resolve(process.env.SHARED_DIR);
+} else {
+  sharedDirectory = path.resolve(projectRoot, "shared/fileshare");
+}
+
+export const GAME_CONTAINER_CONFIG = {
+  containerName: "build_compiler_sandbox",
+  baseImage: "gameroom-base-image",
+  sandboxPath: path.resolve(sharedDirectory, "sandbox"),
+  resultboxPath: path.resolve(sharedDirectory, "resultbox"),
+
+  build: {
+    contextPath: projectRoot,
+    dockerfilePath: path.resolve(
+      backendDirectory,
+      "infra/dockerimage/game.Dockerfile",
+    ),
+    imageTag: "gameroom-base-image:latest",
+    buildOptions: ["--no-cache"],
+  },
+
+  languages: {
+    c: { compiler: "gcc", ext: "c" },
+    cpp: { compiler: "g++", ext: "cpp" },
+    python: { compiler: "python3", ext: "py" },
+    py: { compiler: "python3", ext: "py" },
+    java: { compiler: "javac", ext: "java" },
+    html: { compiler: "htmlhint", ext: "html" },
+    css: { compiler: "stylelint", ext: "css" },
+  },
+};
+
+
+
+// config/roomConfig.js
+
+import dotenv from "dotenv";
+
+dotenv.config();
+
+export const PREPARE_INFO_CONFIG = {
+  defaultGameDurationSeconds: 180,
+  defaultProblemCount: 3,
+  defaultMaxPlayers: 2,
+
+  defaults: {
+    gameMode: "normal",
+    difficulty: "EASY",
+    language: "PYTHON",
+  },
+
+  valkey: {
+    lockTTLSeconds: 10,
+    keys: {
+      lockInit: function (roomId) {
+        return "lock:battle:init:" + roomId;
+      },
+      matchState: function (matchId) {
+        return "match:" + matchId + ":state";
+      },
+    },
+  },
+
+  fallbackProblem: {
+    id: "prob_101",
+    type: "CHOICE",
+    difficulty: "easy",
+    title: "두 수의 합 구하기",
+    question: "1 + 1의 결과는?",
+    options: JSON.stringify(["1", "2", "3", "4"]),
+    description: "기초 산수 문제",
+  },
+};
+
+
+
+// config/saveInfoConfig.js
+
+import dotenv from "dotenv";
+
+dotenv.config();
+
+export const ROOM_CONFIG = {
+  maxParticipants: 8,
+  minParticipantsToStart: {
+    "1/1": 2,
+    default: 3,
+  },
+
+  roomStatus: {
+    WAITING: "WAITING",
+    STARTED: "STARTED",
+    FINISHED: "FINISHED",
+  },
+
+  valkey: {
+    keys: {
+      state: function (roomId) {
+        return "room:" + roomId + ":state";
+      },
+      participants: function (roomId) {
+        return "room:" + roomId + ":participants";
+      },
+      ready: function (roomId) {
+        return "room:" + roomId + ":ready";
+      },
+    },
+  },
+};
+
+
+

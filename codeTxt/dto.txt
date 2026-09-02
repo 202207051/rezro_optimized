@@ -1,0 +1,239 @@
+// dto/gameDto.js
+
+export class CompileResultDto {
+  constructor(data) {
+    let successValue = false;
+    if (data && data.success) {
+      successValue = true;
+    }
+
+    let executionTimeValue = 0;
+    if (data && data.executionTime) {
+      executionTimeValue = data.executionTime;
+    }
+
+    let outputValue = "";
+    if (data && data.output) {
+      outputValue = data.output;
+    }
+
+    let errorValue = null;
+    if (data && data.error) {
+      errorValue = data.error;
+    }
+
+    this.success = successValue;
+    this.executionTime = executionTimeValue;
+    this.output = outputValue;
+    this.error = errorValue;
+  }
+
+  toJSON() {
+    return {
+      success: this.success,
+      executionTime: this.executionTime,
+      output: this.output,
+      error: this.error,
+    };
+  }
+}
+
+export const gameDto = {
+  toStartGameDto: function (params, userId) {
+    const roomId = params.roomId;
+
+    if (!roomId) {
+      throw new Error("Room ID is required to start game.");
+    }
+
+    if (!userId) {
+      throw new Error("Host User ID is required.");
+    }
+
+    return {
+      roomId: String(roomId),
+      hostUserId: String(userId),
+    };
+  },
+
+  toSaveGameResultDto: function (body) {
+    if (!body || typeof body !== "object") {
+      throw new Error("Invalid request body.");
+    }
+
+    const matchId = body.matchId;
+    const roomId = body.roomId;
+    const winnerId = body.winnerId;
+    const score = body.score;
+
+    if (!matchId || typeof matchId !== "string") {
+      throw new Error("Valid match ID is required.");
+    }
+
+    if (!roomId) {
+      throw new Error("Valid room ID is required.");
+    }
+
+    let validatedWinnerId = null;
+    if (winnerId !== undefined && winnerId !== null) {
+      validatedWinnerId = String(winnerId);
+    }
+
+    let validatedScore = 0;
+    if (typeof score === "number" && !isNaN(score)) {
+      validatedScore = score;
+    }
+
+    return {
+      matchId: matchId,
+      roomId: String(roomId),
+      winnerId: validatedWinnerId,
+      score: validatedScore,
+    };
+  },
+};
+
+
+
+// dto/roomDto.js
+
+export class CompileResultDto {
+  constructor(data) {
+    let successValue = false;
+    if (data && data.success) {
+      successValue = true;
+    }
+
+    let executionTimeValue = 0;
+    if (data && data.executionTime) {
+      executionTimeValue = data.executionTime;
+    }
+
+    let outputValue = "";
+    if (data && data.output) {
+      outputValue = data.output;
+    }
+
+    let errorValue = null;
+    if (data && data.error) {
+      errorValue = data.error;
+    }
+
+    this.success = successValue;
+    this.executionTime = executionTimeValue;
+    this.output = outputValue;
+    this.error = errorValue;
+  }
+
+  toJSON() {
+    return {
+      success: this.success,
+      executionTime: this.executionTime,
+      output: this.output,
+      error: this.error,
+    };
+  }
+}
+
+export const gameDto = {
+  toStartGameDto: function (params, userId) {
+    const roomId = params.roomId;
+
+    if (!roomId) {
+      throw new Error("Room ID is required to start game.");
+    }
+
+    if (!userId) {
+      throw new Error("Host User ID is required.");
+    }
+
+    return {
+      roomId: String(roomId),
+      hostUserId: String(userId),
+    };
+  },
+
+  toSaveGameResultDto: function (body) {
+    if (!body || typeof body !== "object") {
+      throw new Error("Invalid request body.");
+    }
+
+    const matchId = body.matchId;
+    const roomId = body.roomId;
+    const winnerId = body.winnerId;
+    const score = body.score;
+
+    if (!matchId || typeof matchId !== "string") {
+      throw new Error("Valid match ID is required.");
+    }
+
+    if (!roomId) {
+      throw new Error("Valid room ID is required.");
+    }
+
+    let validatedWinnerId = null;
+    if (winnerId !== undefined && winnerId !== null) {
+      validatedWinnerId = String(winnerId);
+    }
+
+    let validatedScore = 0;
+    if (typeof score === "number" && !isNaN(score)) {
+      validatedScore = score;
+    }
+
+    return {
+      matchId: matchId,
+      roomId: String(roomId),
+      winnerId: validatedWinnerId,
+      score: validatedScore,
+    };
+  },
+};
+
+
+
+// dto/submissionDto.js
+
+export const submissionDto = {
+  toCodeSubmissionDto: function (body, userId) {
+    if (!body || typeof body !== "object") {
+      throw new Error("Invalid request body.");
+    }
+
+    const submissionId = body.submissionId;
+    const language = body.language;
+    const code = body.code;
+    const roomId = body.roomId;
+
+    if (!submissionId) {
+      throw new Error("Submission ID is required.");
+    }
+
+    if (!language || typeof language !== "string") {
+      throw new Error("Programming language is required.");
+    }
+
+    if (code === undefined || code === null || typeof code !== "string") {
+      throw new Error("Source code string is required.");
+    }
+
+    if (!roomId) {
+      throw new Error("Room ID is required.");
+    }
+
+    if (!userId) {
+      throw new Error("User ID is required.");
+    }
+
+    return {
+      submissionId: String(submissionId),
+      userId: String(userId),
+      language: language.toLowerCase().trim(),
+      code: code,
+      roomId: String(roomId),
+    };
+  },
+};
+
+
+
