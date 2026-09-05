@@ -1,4 +1,4 @@
-// controller/gameController.js
+// src/controller/gameController.js
 
 import { manageGameManager } from "#docker/manager/manageGameManager.js";
 import { saveInfoService } from "#docker/service/saveInfoService.js";
@@ -56,7 +56,7 @@ export const gameController = {
 
 
 
-// controller/roomController.js
+// src/controller/roomController.js
 
 import { manageRoomManager } from "#docker/manager/manageRoomManager.js";
 

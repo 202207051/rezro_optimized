@@ -1,4 +1,4 @@
-// dto/gameDto.js
+// src/dto/gameDto.js
 
 export class CompileResultDto {
   constructor(data) {
@@ -95,7 +95,7 @@ export const gameDto = {
 
 
 
-// dto/roomDto.js
+// src/dto/roomDto.js
 
 export class CompileResultDto {
   constructor(data) {
@@ -192,7 +192,7 @@ export const gameDto = {
 
 
 
-// dto/submissionDto.js
+// src/dto/submissionDto.js
 
 export const submissionDto = {
   toCodeSubmissionDto: function (body, userId) {

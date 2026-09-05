@@ -1,4 +1,4 @@
-// test/testGame.js
+// src/test/testGame.js
 
 import { pool as dbPool } from "#config/dbConfig.js";
 import { redisClient } from "#config/redisConfig.js";

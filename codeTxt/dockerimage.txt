@@ -1,4 +1,4 @@
-// dockerimage/game.Dockerfile
+// src/dockerimage/game.Dockerfile
 
 FROM registry.access.redhat.com/ubi9/ubi:latest
 
@@ -45,7 +45,7 @@ EXPOSE 8080
 CMD ["node", "backend/bin/www"]
 
 
-// dockerimage/room.Dockerfile
+// src/dockerimage/room.Dockerfile
 
 FROM registry.access.redhat.com/ubi9/ubi:latest
 

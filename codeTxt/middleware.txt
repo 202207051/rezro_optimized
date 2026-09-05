@@ -1,4 +1,4 @@
-// middleware/authoMiddleware.js
+// src/middleware/authoMiddleware.js
 
 import jwt from "jsonwebtoken";
 
@@ -48,7 +48,7 @@ export const authMiddleware = {
 
 
 
-// middleware/roomMiddleware.js
+// src/middleware/roomMiddleware.js
 
 import { redisClient } from "#config/redisConfig.js";
 import { ROOM_CONFIG } from "#docker/config/roomConfig.js";
