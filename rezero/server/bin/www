@@ -1,0 +1,56 @@
+#!/usr/bin/env node
+
+import http from "node:http";
+
+import app from "../app.js";
+import { env } from "#config/envConfig.js";
+import { pool, testDbConnection } from "#config/dbConfig.js";
+import { redisClient, connectRedis } from "#config/redisConfig.js";
+import { initSocket } from "#config/socketConfig.js";
+
+const server = http.createServer(app);
+
+initSocket(server);
+
+async function startServer() {
+  await testDbConnection();
+  await connectRedis();
+
+  server.listen(env.port, env.host, function () {
+    console.log("Backend running on http://" + env.host + ":" + env.port);
+  });
+}
+
+async function stopServer(signal) {
+  console.log(signal + " received. Backend is shutting down.");
+
+  server.close(async function () {
+    if (redisClient.isOpen) {
+      await redisClient.quit();
+    }
+    await pool.end();
+    process.exit(0);
+  });
+}
+
+server.on("error", function (error) {
+  console.error("Backend server error:", error.message);
+  process.exit(1);
+});
+
+process.on("SIGINT", function () {
+  stopServer("SIGINT");
+});
+
+process.on("SIGTERM", function () {
+  stopServer("SIGTERM");
+});
+
+startServer().catch(async function (error) {
+  console.error("Backend startup failed:", error.message);
+  if (redisClient.isOpen) {
+    await redisClient.quit();
+  }
+  await pool.end();
+  process.exit(1);
+});

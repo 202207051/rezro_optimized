@@ -1,0 +1,66 @@
+services:
+  game-server:
+    build:
+      context: .
+      dockerfile: ./infra/dockerimage/game.Dockerfile
+    container_name: game-server
+    restart: always
+    ports:
+      - "8080:8080"
+    environment:
+      - NODE_ENV=development
+      - HOST=0.0.0.0
+      - PORT=8080
+    volumes:
+      - .:/app
+      - /app/node_modules
+      - ../../shared/sandbox:/app/src/infra/mountpoint/sandbox:z
+      - ../../shared/resultbox:/app/src/infra/mountpoint/resultbox:z
+    extra_hosts:
+      - "host.containers.internal:host-gateway"
+      - "host.docker.internal:host-gateway"
+
+  room-server:
+    build:
+      context: .
+      dockerfile: ./infra/dockerimage/room.Dockerfile
+    container_name: room-server
+    restart: always
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=development
+      - HOST=0.0.0.0
+      - PORT=3000
+      - REDIS_HOST=valkey
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=
+    volumes:
+      - .:/app
+      - /app/node_modules
+    depends_on:
+      - valkey
+    extra_hosts:
+      - "host.containers.internal:host-gateway"
+      - "host.docker.internal:host-gateway"
+
+  code-runner:
+    build:
+      context: .
+      dockerfile: ./infra/dockerimage/game.Dockerfile
+    container_name: build-runner
+    restart: always
+    volumes:
+      - ../../shared/sandbox:/app/sandbox:z
+      - ../../shared/resultbox:/app/resultbox:z
+    tty: true
+    stdin_open: true
+
+  valkey:
+    image: redis:alpine
+    container_name: game-valkey
+    restart: always
+    ports:
+      - "6379:6379"
+    volumes:
+      - ../../shared/valkeybox:/data:z
