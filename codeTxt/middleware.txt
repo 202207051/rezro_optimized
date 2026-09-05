@@ -1,167 +1,177 @@
-// src/middleware/authoMiddleware.js
+// src/middleware/authMiddleware.js
+
+import { ERROR_CODE } from "#constants/errorCode.js";
+import { AppError } from "#utils/appError.js";
+import { verifyAccessToken } from "#utils/cryptoUtils.js";
+
+export function authenticate(req, res, next) {
+  const authorization = req.headers.authorization;
+
+  let hasValidPrefix = false;
+  if (authorization) {
+    if (authorization.startsWith("Bearer ")) {
+      hasValidPrefix = true;
+    }
+  }
+
+  if (!hasValidPrefix) {
+    return next(
+      new AppError(401, ERROR_CODE.TOKEN_REQUIRED, "로그인이 필요합니다."),
+    );
+  }
+
+  try {
+    const token = authorization.slice("Bearer ".length).trim();
+    const payload = verifyAccessToken(token);
+
+    if (!payload.sub) {
+      throw new Error("토큰에 사용자 ID가 없습니다.");
+    }
+
+    req.user = { id: payload.sub };
+    return next();
+  } catch (error) {
+    if (error.name === "TokenExpiredError") {
+      return next(
+        new AppError(
+          401,
+          ERROR_CODE.TOKEN_EXPIRED,
+          "로그인 정보가 만료되었습니다.",
+        ),
+      );
+    }
+
+    if (error.message.startsWith("JWT_SECRET")) {
+      return next(error);
+    }
+
+    return next(
+      new AppError(401, ERROR_CODE.TOKEN_INVALID, "올바르지 않은 토큰입니다."),
+    );
+  }
+}
+
+
+
+// src/middleware/manageGameMiddleware.js
+
+import { ERROR_CODE } from "#constants/errorCode.js";
+import { AppError } from "#utils/appError.js";
+import { verifyAccessToken } from "#utils/cryptoUtils.js";
+
+export function authenticate(req, res, next) {
+  const authorization = req.headers.authorization;
+
+  let hasValidPrefix = false;
+  if (authorization) {
+    if (authorization.startsWith("Bearer ")) {
+      hasValidPrefix = true;
+    }
+  }
+
+  if (!hasValidPrefix) {
+    return next(
+      new AppError(401, ERROR_CODE.TOKEN_REQUIRED, "로그인이 필요합니다."),
+    );
+  }
+
+  try {
+    const token = authorization.slice("Bearer ".length).trim();
+    const payload = verifyAccessToken(token);
+
+    if (!payload.sub) {
+      throw new Error("토큰에 사용자 ID가 없습니다.");
+    }
+
+    req.user = { id: payload.sub };
+    return next();
+  } catch (error) {
+    if (error.name === "TokenExpiredError") {
+      return next(
+        new AppError(
+          401,
+          ERROR_CODE.TOKEN_EXPIRED,
+          "로그인 정보가 만료되었습니다.",
+        ),
+      );
+    }
+
+    if (error.message.startsWith("JWT_SECRET")) {
+      return next(error);
+    }
+
+    return next(
+      new AppError(401, ERROR_CODE.TOKEN_INVALID, "올바르지 않은 토큰입니다."),
+    );
+  }
+}
+
+
+
+// src/middleware/manageRoomMiddleware.js
+
+import { DEFAULT_ROOM_LIMIT } from "#config/manageRoomConfig.js";
+
+export function validateRoomQuery(req, res, next) {
+  const limitParam = parseInt(req.query.limit, 10);
+  let resolvedLimit;
+  if (isNaN(limitParam)) {
+    resolvedLimit = DEFAULT_ROOM_LIMIT;
+  } else {
+    if (limitParam <= 0) {
+      resolvedLimit = DEFAULT_ROOM_LIMIT;
+    } else {
+      resolvedLimit = limitParam;
+    }
+  }
+  req.roomLimit = resolvedLimit;
+  next();
+}
+
+
+
+// src/middleware/socketMiddleware.js
 
 import jwt from "jsonwebtoken";
+import { authConfig } from "#config/authConfig.js";
 
-export const authMiddleware = {
-  authenticateUser: function (req, res, next) {
-    try {
-      const authHeader = req.headers.authorization;
-
-      if (!authHeader || typeof authHeader !== "string") {
-        return res.status(401).json({
-          success: false,
-          message: "Authorization header is missing.",
-        });
-      }
-
-      let token = "";
-      if (authHeader.startsWith("Bearer ")) {
-        token = authHeader.split(" ")[1];
-      } else {
-        token = authHeader;
-      }
-
-      if (!token || token.trim().length === 0) {
-        return res.status(401).json({
-          success: false,
-          message: "Authentication token is missing.",
-        });
-      }
-
-      const jwtSecret = process.env.JWT_SECRET || "default_jwt_secret";
-      const decodedPayload = jwt.verify(token, jwtSecret);
-
-      req.user = decodedPayload;
-      next();
-    } catch (error) {
-      console.error(
-        "[AuthMiddleware] Token verification failed:",
-        error.message,
-      );
-      return res.status(401).json({
-        success: false,
-        message: "Invalid or expired token: " + error.message,
-      });
+export function socketAuthMiddleware(socket, next) {
+  let token;
+  if (socket.handshake.auth && socket.handshake.auth.token) {
+    token = socket.handshake.auth.token;
+  } else {
+    if (socket.handshake.headers && socket.handshake.headers.authorization) {
+      token = socket.handshake.headers.authorization;
     }
-  },
-};
+  }
 
+  if (!token) {
+    return next(new Error("소켓 인증 실패: 토큰이 누락되었습니다."));
+  }
 
-
-// src/middleware/roomMiddleware.js
-
-import { redisClient } from "#config/redisConfig.js";
-import { ROOM_CONFIG } from "#docker/config/roomConfig.js";
-
-export const roomMiddleware = {
-  validateRoomExists: async function (req, res, next) {
-    try {
-      let roomId = req.params.roomId;
-      if (!roomId && req.body) {
-        roomId = req.body.roomId;
-      }
-
-      if (!roomId) {
-        return res.status(400).json({
-          success: false,
-          message: "Room ID is required.",
-        });
-      }
-
-      const stateKey = ROOM_CONFIG.valkey.keys.state(roomId);
-      const roomState = await redisClient.hGetAll(stateKey);
-
-      if (!roomState || !roomState.hostUserId) {
-        return res.status(404).json({
-          success: false,
-          message: "Room not found or expired: " + roomId,
-        });
-      }
-
-      req.roomState = roomState;
-      next();
-    } catch (error) {
-      console.error("[RoomMiddleware] Room validation error:", error.message);
-      return res.status(500).json({
-        success: false,
-        message: error.message,
-      });
+  try {
+    let actualToken;
+    if (token.startsWith("Bearer ")) {
+      actualToken = token.split(" ")[1];
+    } else {
+      actualToken = token;
     }
-  },
 
-  verifyHostPermission: function (req, res, next) {
-    try {
-      const roomState = req.roomState;
-      const user = req.user;
+    const decoded = jwt.verify(actualToken, authConfig.jwtSecret);
 
-      if (!roomState) {
-        return res.status(400).json({
-          success: false,
-          message:
-            "Room state not loaded. Ensure validateRoomExists middleware is executed first.",
-        });
-      }
+    socket.user = {
+      id: decoded.id,
+      username: decoded.username,
+      displayName: decoded.displayName,
+    };
 
-      if (!user || !user.id) {
-        return res.status(401).json({
-          success: false,
-          message: "Authenticated user information is missing.",
-        });
-      }
-
-      const hostUserId = String(roomState.hostUserId);
-      const currentUserId = String(user.id);
-
-      if (hostUserId !== currentUserId) {
-        return res.status(403).json({
-          success: false,
-          message: "Only the room host can perform this action.",
-        });
-      }
-
-      next();
-    } catch (error) {
-      console.error("[RoomMiddleware] Host verification error:", error.message);
-      return res.status(500).json({
-        success: false,
-        message: error.message,
-      });
-    }
-  },
-
-  verifyRoomWaitingStatus: function (req, res, next) {
-    try {
-      const roomState = req.roomState;
-
-      if (!roomState) {
-        return res.status(400).json({
-          success: false,
-          message: "Room state not loaded.",
-        });
-      }
-
-      if (roomState.status !== ROOM_CONFIG.roomStatus.WAITING) {
-        return res.status(400).json({
-          success: false,
-          message:
-            "Room is not in WAITING status. Current status: " +
-            roomState.status,
-        });
-      }
-
-      next();
-    } catch (error) {
-      console.error(
-        "[RoomMiddleware] Room status verification error:",
-        error.message,
-      );
-      return res.status(500).json({
-        success: false,
-        message: error.message,
-      });
-    }
-  },
-};
+    next();
+  } catch (error) {
+    return next(
+      new Error("소켓 인증 실패: 유효하지 않거나 만료된 토큰입니다."),
+    );
+  }
+}
 
 
 

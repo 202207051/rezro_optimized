@@ -1,109 +1,82 @@
-// src/controller/gameController.js
+// src/controller/manageGameController.js
 
-import { manageGameManager } from "#docker/manager/manageGameManager.js";
-import { saveInfoService } from "#docker/service/saveInfoService.js";
+import gameStartService from "#service/manageGameService.js";
 
-export const gameController = {
-  startGame: async function (req, res) {
-    try {
-      const roomId = req.params.roomId;
-      const gameResult = await manageGameManager.startGame(roomId);
+class GameStartController {
+  async checkRoomCanStart(roomId) {
+    const result = await gameStartService.checkCanStart(roomId);
+    return {
+      success: true,
+      data: result,
+    };
+  }
+}
 
-      res.status(200).json({
-        success: true,
-        message: "Game started successfully.",
-        data: gameResult,
-      });
-    } catch (error) {
-      console.error("[GameController] startGame error:", error.message);
-      res.status(500).json({
-        success: false,
-        message: error.message,
-      });
+export default new GameStartController();
+
+
+
+// src/controller/manageRoomController.js
+
+import manageRoomService from "#service/manageRoomService.js";
+
+class ManageRoomController {
+  async fetchRooms(limit) {
+    const rooms = await manageRoomService.getRooms(limit);
+    return {
+      success: true,
+      data: rooms,
+    };
+  }
+}
+
+export default new ManageRoomController();
+
+
+
+// src/controller/socketController.js
+
+import jwt from "jsonwebtoken";
+import { authConfig } from "#config/authConfig.js";
+
+export function socketAuthMiddleware(socket, next) {
+  let token;
+  if (socket.handshake.auth && socket.handshake.auth.token) {
+    token = socket.handshake.auth.token;
+  } else if (
+    socket.handshake.headers &&
+    socket.handshake.headers.authorization
+  ) {
+    token = socket.handshake.headers.authorization;
+  }
+
+  if (!token) {
+    return next(new Error("소켓 인증 실패: 토큰이 존재하지 않습니다."));
+  }
+
+  try {
+    let actualToken;
+    if (token.indexOf("Bearer ") === 0) {
+      actualToken = token.split(" ")[1];
+    } else {
+      actualToken = token;
     }
-  },
 
-  endGame: async function (req, res) {
-    try {
-      const matchId = req.body.matchId;
-      const roomId = req.body.roomId;
-      const winnerId = req.body.winnerId;
-      const score = req.body.score;
+    const decoded = jwt.verify(actualToken, authConfig.jwtSecret);
 
-      const saveResult = await saveInfoService.saveGameResult({
-        matchId: matchId,
-        roomId: roomId,
-        winnerId: winnerId,
-        score: score,
-      });
+    socket.user = {
+      id: decoded.id || decoded.sub,
+      username: decoded.username,
+      displayName: decoded.displayName,
+    };
 
-      await manageGameManager.stopGame(roomId);
-
-      res.status(200).json({
-        success: true,
-        message: "Game ended and results saved successfully.",
-        data: saveResult,
-      });
-    } catch (error) {
-      console.error("[GameController] endGame error:", error.message);
-      res.status(500).json({
-        success: false,
-        message: error.message,
-      });
-    }
-  },
-};
-
-
-
-// src/controller/roomController.js
-
-import { manageRoomManager } from "#docker/manager/manageRoomManager.js";
-
-export const roomController = {
-  createRoom: async function (req, res) {
-    try {
-      const title = req.body.title;
-      const mode = req.body.mode;
-      const hostId = req.user.id;
-
-      const roomData = await manageRoomManager.createRoom({
-        title: title,
-        mode: mode,
-        hostId: hostId,
-      });
-
-      res.status(201).json({
-        success: true,
-        data: roomData,
-      });
-    } catch (error) {
-      console.error("[RoomController] createRoom error:", error.message);
-      res.status(500).json({
-        success: false,
-        message: error.message,
-      });
-    }
-  },
-
-  getRoomDetails: async function (req, res) {
-    try {
-      const roomId = req.params.roomId;
-      const details = await manageRoomManager.getRoomDetails(roomId);
-
-      res.status(200).json({
-        success: true,
-        data: details,
-      });
-    } catch (error) {
-      console.error("[RoomController] getRoomDetails error:", error.message);
-      res.status(500).json({
-        success: false,
-        message: error.message,
-      });
-    }
-  },
-};
+    next();
+  } catch (err) {
+    return next(
+      new Error("소켓 인증 실패: 유효하지 않거나 만료된 토큰입니다."),
+    );
+  }
+}
 
 
 

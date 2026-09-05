@@ -1,176 +1,198 @@
-// src/config/gameConfig.js
+// src/config/authConfig.js
 
-import path from "path";
-import dotenv from "dotenv";
+import { env } from "#config/envConfig.js";
 
-dotenv.config();
+export const authConfig = {
+  jwtSecret: env.jwtSecret || "default_jwt_secret",
+  jwtExpiresIn: env.jwtExpiresIn,
+  tokenRedisTTL: 3600,
+  saltRounds: 10,
+};
 
-const currentDirectory = import.meta.dirname;
 
-const projectRoot = path.resolve(currentDirectory, "../../..");
 
-const backendDirectory = path.resolve(currentDirectory, "../..");
+// src/config/dbConfig.js
 
-let sharedDirectory;
-if (process.env.SHARED_DIR) {
-  sharedDirectory = path.resolve(process.env.SHARED_DIR);
-} else {
-  sharedDirectory = path.resolve(projectRoot, "shared");
+import "#config/envConfig.js";
+
+import mariadb from "mariadb";
+
+export const pool = mariadb.createPool({
+  host: process.env.DB_HOST,
+  port: Number(process.env.DB_PORT || 3306),
+  user: process.env.DB_USER,
+  password: process.env.DB_PASSWORD,
+  database: process.env.DB_NAME,
+  connectionLimit: Number(process.env.DB_CONNECTION_LIMIT || 5),
+});
+
+export async function testDbConnection() {
+  let connection;
+
+  try {
+    connection = await pool.getConnection();
+    await connection.query("SELECT 1");
+    console.log("[MariaDB] connected");
+  } finally {
+    if (connection) {
+      connection.release();
+    }
+  }
 }
 
-export const GAME_CONTAINER_CONFIG = {
-  containerName: "build_compiler_sandbox",
-  baseImage: "gameroom-base-image",
-  sandboxPath: path.resolve(sharedDirectory, "sandbox"),
-  resultboxPath: path.resolve(sharedDirectory, "resultbox"),
-
-  build: {
-    contextPath: projectRoot,
-    dockerfilePath: path.resolve(
-      backendDirectory,
-      "infra/dockerimage/game.Dockerfile",
-    ),
-    imageTag: "gameroom-base-image:latest",
-    buildOptions: ["--no-cache"],
-  },
-
-  languages: {
-    c: { compiler: "gcc", ext: "c" },
-    cpp: { compiler: "g++", ext: "cpp" },
-    python: { compiler: "python3", ext: "py" },
-    py: { compiler: "python3", ext: "py" },
-    java: { compiler: "javac", ext: "java" },
-    html: { compiler: "htmlhint", ext: "html" },
-    css: { compiler: "stylelint", ext: "css" },
-  },
-};
 
 
+// src/config/envConfig.js
 
-// src/config/roomConfig.js
-
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import dotenv from "dotenv";
 
-dotenv.config();
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
-export const PREPARE_INFO_CONFIG = {
-  defaultGameDurationSeconds: 180,
-  defaultProblemCount: 3,
-  defaultMaxPlayers: 2,
+dotenv.config({ path: path.resolve(__dirname, "../../.env") });
 
-  defaults: {
-    gameMode: "normal",
-    difficulty: "EASY",
-    language: "PYTHON",
-  },
-
-  valkey: {
-    lockTTLSeconds: 10,
-    keys: {
-      lockInit: function (roomId) {
-        return "lock:battle:init:" + roomId;
-      },
-      matchState: function (matchId) {
-        return "match:" + matchId + ":state";
-      },
-    },
-  },
-
-  fallbackProblem: {
-    id: "prob_101",
-    type: "CHOICE",
-    difficulty: "easy",
-    title: "두 수의 합 구하기",
-    question: "1 + 1의 결과는?",
-    options: JSON.stringify(["1", "2", "3", "4"]),
-    description: "기초 산수 문제",
-  },
-};
-
-
-
-// src/config/saveInfoConfig.js
-
-import dotenv from "dotenv";
-
-dotenv.config();
-
-export const ROOM_CONFIG = {
-  maxParticipants: 8,
-  minParticipantsToStart: {
-    "1/1": 2,
-    default: 3,
-  },
-
-  roomStatus: {
-    WAITING: "WAITING",
-    STARTED: "STARTED",
-    FINISHED: "FINISHED",
-  },
-
-  valkey: {
-    keys: {
-      state: function (roomId) {
-        return "room:" + roomId + ":state";
-      },
-      participants: function (roomId) {
-        return "room:" + roomId + ":participants";
-      },
-      ready: function (roomId) {
-        return "room:" + roomId + ":ready";
-      },
-    },
-  },
-};
-
-
-
-// src/config/prepareInfoConfig.js
-
-import path from "path";
-import dotenv from "dotenv";
-
-dotenv.config();
-
-const currentDirectory = import.meta.dirname;
-
-const projectRoot = path.resolve(currentDirectory, "../../..");
-
-const backendDirectory = path.resolve(currentDirectory, "../..");
-
-let sharedDirectory;
-if (process.env.SHARED_DIR) {
-  sharedDirectory = path.resolve(process.env.SHARED_DIR);
-} else {
-  sharedDirectory = path.resolve(projectRoot, "shared/fileshare");
+function getNodeEnv() {
+  if (process.env.NODE_ENV) {
+    return process.env.NODE_ENV;
+  }
+  return "development";
 }
 
-export const ROOM_CONFIG = {
-  containerName: "build_compiler_sandbox",
-  baseImage: "gameroom-base-image",
-  sandboxPath: path.resolve(sharedDirectory, "sandbox"),
-  resultboxPath: path.resolve(sharedDirectory, "resultbox"),
+function getHost() {
+  if (process.env.HOST) {
+    return process.env.HOST;
+  }
+  return "0.0.0.0";
+}
 
-  build: {
-    contextPath: projectRoot,
-    dockerfilePath: path.resolve(
-      backendDirectory,
-      "infra/dockerimage/game.Dockerfile",
-    ),
-    imageTag: "gameroom-base-image:latest",
-    buildOptions: ["--no-cache"],
-  },
+function getPort() {
+  if (process.env.PORT) {
+    return Number(process.env.PORT);
+  }
+  return 8080;
+}
 
-  languages: {
-    c: { compiler: "gcc", ext: "c" },
-    cpp: { compiler: "g++", ext: "cpp" },
-    python: { compiler: "python3", ext: "py" },
-    py: { compiler: "python3", ext: "py" },
-    java: { compiler: "javac", ext: "java" },
-    html: { compiler: "htmlhint", ext: "html" },
-    css: { compiler: "stylelint", ext: "css" },
-  },
+function getJwtSecret() {
+  if (process.env.JWT_SECRET) {
+    return process.env.JWT_SECRET;
+  }
+  return "";
+}
+
+function getJwtExpiresIn() {
+  if (process.env.JWT_EXPIRES_IN) {
+    return process.env.JWT_EXPIRES_IN;
+  }
+  return "1h";
+}
+
+export const env = {
+  nodeEnv: getNodeEnv(),
+  host: getHost(),
+  port: getPort(),
+  jwtSecret: getJwtSecret(),
+  jwtExpiresIn: getJwtExpiresIn(),
 };
+
+
+
+// src/config/manageRoomConfig.js
+
+export const ROOM_STATUS = Object.freeze({
+  WAITING: "WAITING",
+  STARTED: "STARTED",
+});
+
+export const DEFAULT_ROOM_LIMIT = 3;
+export const MIN_PLAYERS_TO_START = 2;
+
+
+
+// src/config/redisConfig.js
+
+import "#config/envConfig.js";
+
+import { createClient } from "redis";
+
+function getRedisHost() {
+  if (process.env.REDIS_HOST) {
+    return process.env.REDIS_HOST;
+  }
+  return "127.0.0.1";
+}
+
+function getRedisPort() {
+  if (process.env.REDIS_PORT) {
+    return Number(process.env.REDIS_PORT);
+  }
+  return 6379;
+}
+
+function getRedisPassword() {
+  if (process.env.REDIS_PASSWORD) {
+    return process.env.REDIS_PASSWORD;
+  }
+  return undefined;
+}
+
+export const redisClient = createClient({
+  socket: {
+    host: getRedisHost(),
+    port: getRedisPort(),
+  },
+  password: getRedisPassword(),
+});
+
+redisClient.on("error", function (error) {
+  console.error("[Valkey] error:", error.message);
+});
+
+export async function connectRedis() {
+  if (!redisClient.isOpen) {
+    await redisClient.connect();
+  }
+  await redisClient.ping();
+  console.log("[Valkey] connected");
+}
+
+
+
+// src/config/socketConfig.js
+
+import { Server } from "socket.io";
+import { socketAuthMiddleware } from "#controller/socketController.js";
+import { registerSocketHandlers } from "#handler/socketHandler.js";
+
+let socketServer;
+
+export const socketConfig = {
+  maxMessageLength: 500,
+  recentMessageLimit: 50,
+  defaultRoom: "room_lobby",
+};
+
+export function initSocket(server) {
+  socketServer = new Server(server, {
+    cors: {
+      origin: "*",
+      methods: ["GET", "POST"],
+    },
+  });
+
+  socketServer.use(socketAuthMiddleware);
+
+  socketServer.on("connection", function (socket) {
+    registerSocketHandlers(socketServer, socket);
+  });
+
+  return socketServer;
+}
+
+export function getSocket() {
+  return socketServer;
+}
 
 
 
