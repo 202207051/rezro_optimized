@@ -1,0 +1,153 @@
+import type { ItemInventory } from '../constants/itemTypes';
+import type { TitleData, TitleStats } from '../constants/titleTypes';
+import type { CodeHistoryEntry } from '../types/lobby';
+
+const EMPTY_ITEM_INVENTORY: ItemInventory = {
+  paint: 0,
+  revealLength: 0,
+  revealPrev: 0,
+  lightning: 0,
+  timeReduce: 0,
+  scribble: 0,
+  blankBreak: 0,
+  buildCharge: 0,
+};
+
+const EMPTY_TITLE_STATS: TitleStats = {
+  totalWins: 0,
+  consecutiveWins: 0,
+  totalGames: 0,
+  perfectGame: false,
+  avgSpeed: 0,
+  langWins: {},
+};
+
+const defaultTitleData = (): TitleData => ({
+  owned: [],
+  equipped: null,
+  stats: { ...EMPTY_TITLE_STATS },
+});
+
+let gold = 0;
+let itemInventory: ItemInventory = { ...EMPTY_ITEM_INVENTORY };
+let titleData: TitleData = defaultTitleData();
+let ratingScore = 1000;
+let newTitleIds: string[] = [];
+let codeHistory: CodeHistoryEntry[] = [];
+
+export function getGold(): number {
+  return gold;
+}
+
+export function setGold(value: number): void {
+  gold = Math.max(0, value);
+}
+
+export function addGold(delta: number): number {
+  gold = Math.max(0, gold + delta);
+  return gold;
+}
+
+export function getItemInventory(): ItemInventory {
+  return { ...itemInventory };
+}
+
+export function setItemInventory(items: ItemInventory): void {
+  itemInventory = { ...items };
+}
+
+export function updateItemInventory(updater: (prev: ItemInventory) => ItemInventory): ItemInventory {
+  itemInventory = updater(getItemInventory());
+  return itemInventory;
+}
+
+export function getTitles(): TitleData {
+  return {
+    ...titleData,
+    owned: [...titleData.owned],
+    stats: { ...titleData.stats, langWins: { ...titleData.stats.langWins } },
+  };
+}
+
+export function saveTitles(data: TitleData): void {
+  titleData = {
+    ...data,
+    owned: [...data.owned],
+    stats: { ...data.stats, langWins: { ...data.stats.langWins } },
+  };
+}
+
+export function getEquippedTitleId(): string | null {
+  return titleData.equipped;
+}
+
+export function getRatingScore(): number {
+  return ratingScore;
+}
+
+export function setRatingScore(value: number): void {
+  ratingScore = Math.max(0, Number(value) || 0);
+}
+
+export function applyMatchRewards(params: {
+  earnedGold?: number;
+  ratingDelta?: number;
+  newTitleIds?: string[];
+}): void {
+  if (typeof params.earnedGold === 'number') {
+    addGold(params.earnedGold);
+  }
+  if (typeof params.ratingDelta === 'number') {
+    ratingScore = Math.max(0, ratingScore + params.ratingDelta);
+  }
+  if (Array.isArray(params.newTitleIds) && params.newTitleIds.length > 0) {
+    const prev = getTitles();
+    const owned = new Set(prev.owned);
+    params.newTitleIds.forEach((id) => owned.add(id));
+    saveTitles({ ...prev, owned: [...owned] });
+    setNewTitleIds(params.newTitleIds);
+  }
+}
+
+export function getNewTitleIds(): string[] {
+  return [...newTitleIds];
+}
+
+export function setNewTitleIds(ids: string[]): void {
+  newTitleIds = [...ids];
+}
+
+export function readUserCodeHistory(): CodeHistoryEntry[] {
+  return [...codeHistory];
+}
+
+export function persistUserCodeHistory(nextHistory: CodeHistoryEntry[]): void {
+  codeHistory = [...nextHistory];
+}
+
+export interface UserProfilePayload {
+  gold?: number;
+  ratingScore?: number;
+  itemInventory?: Partial<ItemInventory>;
+  titleData?: TitleData;
+}
+
+export function applyUserProfile(profile: UserProfilePayload): void {
+  setGold(Number(profile.gold ?? 0));
+  ratingScore = Number(profile.ratingScore ?? 1000);
+  setItemInventory({
+    ...EMPTY_ITEM_INVENTORY,
+    ...(profile.itemInventory || {}),
+  });
+  saveTitles(profile.titleData || defaultTitleData());
+}
+
+export function clearUserSession(): void {
+  gold = 0;
+  itemInventory = { ...EMPTY_ITEM_INVENTORY };
+  titleData = defaultTitleData();
+  ratingScore = 1000;
+  newTitleIds = [];
+  // 매치 스토리는 DB에 보관 — 로그아웃시 메모리만 비우지 않고 로그인 시 다시 로드
+  codeHistory = [];
+}

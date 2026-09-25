@@ -1,0 +1,821 @@
+================================================================================
+ data-dictionary.txt — 프론트엔드 데이터·변수 사전
+================================================================================
+
+UI·화면 흐름은 front.txt 를 본다. 이 문서는 백엔드·협업용으로
+프론트에 쓰이는 **변수·타입·저장 위치**를 정리한다.
+
+  ※ API 스펙이 아님. 현재는 메모리 store 기준이며, DB/API 연동 시
+    store 내부가 서버 데이터로 교체될 예정.
+
+  범례 [저장]
+    UI     … 해당 페이지 React state (앱 실행 중, 페이지 벗어나면 해제)
+    STORE  … userService / sessionStore / roomStore 등 (앱 실행 중 유지)
+    URL    … 라우트 쿼리 문자열 (새로고침·공유 시 전달)
+    CONST  … constants / problems.js (정적)
+    —      … UI 전용 (백엔드 연동 대상 아님, 참고만)
+
+
+--------------------------------------------------------------------------------
+ 목차
+--------------------------------------------------------------------------------
+
+  A. 공통 — 저장소·세션 키
+  B. 도메인 타입 (types/*.ts, constants)
+  C. URL 쿼리 파라미터 (화면 간 전달)
+  D. 화면 간 payload (Room → Battle → Result)
+  E. 페이지별 변수 (도메인 / UI 구분)
+  F. 상수·enum·고정값
+  G. 인증 (Auth)
+  H. 문제 capabilities · visual 자산
+
+
+================================================================================
+ A. 공통 — 저장소·세션 키
+================================================================================
+
+[A.1 userService]  src/services/userService.ts
+  (유저 프로필·재화 — 추후 User API / DB 후보)
+
+  변수              타입                    초기값        설명
+  ─────────────────────────────────────────────────────────────────
+  gold              number                  0             골드 (G)
+  itemInventory     ItemInventory           전 종 0       배틀 아이템 보유 수
+  titleData         TitleData               아래 참조     칭호 보유·장착·통계
+  ratingScore       number                  1000          레이팅 (UI 거의 미표시)
+  newTitleIds       string[]                []            이번 판 신규 칭호 id
+  codeHistory       CodeHistoryEntry[]      []            매치 코드 히스토리
+
+[A.2 roomStore]  src/services/roomStore.ts
+
+  변수              타입                    초기값        설명
+  ─────────────────────────────────────────────────────────────────
+  dynamicRooms      Room[]                  []            유저가 만든 방 목록
+  kickedCountByRoom Map<roomId, number>     {}            방별 강퇴 누적 수
+
+[A.3 sessionStore]  src/services/sessionStore.ts
+  (배틀 세션 — 추후 Match / Session API 후보)
+
+  전역 (활성 배틀 1세트)
+  ─────────────────────────────────────────────────────────────────
+  battleProblems      BattleProblem[] | null  null          현재 판 문제 목록
+  battleSettings      object | null           null          대기실 START 시 설정
+  battleSubmission    object | null           null          배틀 제출 스냅샷 (결과용)
+  opponentBattleCode  string | null           null          상대 코드 (리뷰용)
+  roomUsers           RoomUser[] | null       null          실시간 순위용 유저 스냅샷
+
+  sessionId 키별 Map (sessionId = "battle-{roomId}" | "battle-solo")
+  ─────────────────────────────────────────────────────────────────
+  battleDrafts              Map               —             진행 중 답안 draft
+  battleDraftCodes          Map               —             문제별 코드 배열
+  battleDraftMeta           Map               —             currentIndex, remaining 등
+  battleDemoStates          Map               —             봇·관전·점수 demo 상태
+  battleSubmittedProblems   Map               —             제출 완료 문제 index[]
+  battleFinalRankings       Map               —             FinalRankingSnapshot
+
+[A.4 clientPrefsStore]  src/services/clientPrefsStore.ts
+
+  변수              타입                    초기값        설명
+  ─────────────────────────────────────────────────────────────────
+  displayMode       'window'|'fullscreen'   'window'      창 / 전체화면
+  audioSettings     AudioSettings           lobby/battle  BGM on/off
+                                          music: false
+
+[A.5 reviewInviteStore]  src/services/reviewInviteStore.ts
+
+  reviewInvites     Map<sessionId, ReviewInvitePayload>   결과 화면 복습 초대
+
+[A.6 sessionId 규칙]  battleSessionService.getSessionId
+  roomId 있음  →  "battle-{roomId}"     예: battle-5
+  roomId 없음  →  "battle-solo"
+
+[A.7 authService]  src/services/authService.ts
+  (로컬 계정 — 멀티 API 연동 전 임시)
+
+  저장 위치
+  ─────────────────────────────────────────────────────────────────
+  rezero_auth_accounts    localStorage    계정 목록 (id, username, password, displayName)
+  currentUser             메모리 only     앱 재실행 시 null (재로그인 필요)
+  rezero_auth_session     (레거시)        initAuth() 시 삭제
+
+  TEST_ACCOUNTS (최초 localStorage 없을 때 시드)
+    testuser1 / test1234  (displayName: 테스트유저1)
+    testuser2 / test1234  (displayName: 테스트유저2)
+
+  로그인·회원가입 성공 시 initializeUserSession() 호출 (userService 초기화)
+
+[A.8 devTestConfig]  src/constants/devTestConfig.ts
+
+  DEV_TEST_USER_LOADOUT
+    enabled                 boolean     true 시 로그인·가입 직후 테스트 로드아웃 적용
+    gold                    number      50000
+    items                   object      8종 아이템 각 10개
+    autoSelectAllItemsInRoom boolean    대기실 아이템 로드아웃 전부 자동 선택
+
+
+================================================================================
+ B. 도메인 타입 (types/*.ts, constants)
+================================================================================
+
+[B.1 GameMode]  types/lobby.ts
+  'item' | 'normal'
+
+[B.2 Room]  types/lobby.ts — 로비 목록·roomStore
+
+  필드          타입                      설명
+  ────────────────────────────────────────────────────────────────
+  id            number                    방 ID (createRoom: max+1, 최소 5)
+  title         string                    방 제목
+  status        'WAITING' | 'STARTED'     대기 / 게임 시작됨
+  players       string                    "현재/최대" e.g. "1/8", "1/1"
+  mode          string                    '1/1' | '1/N'
+  gameMode      GameMode?                 item | normal
+  diff          string                    쉬움 | 보통 | 어려움 (또는 EASY 등)
+  lang          string                    JAVA, PYTHON, …
+  time          string?                   표시용 시간 (예: 45분)
+  pwd           string                    비밀번호 (public 이면 '')
+  count         string?                   문제 수 (3~10)
+  createdAt     number?                   생성 시각 (ms)
+
+[B.3 ChatMessage]  types/lobby.ts — 로비 채팅
+
+  sender        string
+  text          string
+  time          string                    "HH:mm"
+  mode          string                    '[전체]' | '[친구]' | '[귓속말:{target}]' 라벨
+
+[B.4 CodeHistoryEntry]  types/lobby.ts — 매치 스토리
+
+  historyId     string                    고유키 (roomId::submittedAt 등)
+  roomId        string
+  submittedAt   string                    ISO8601
+  lang          string
+  problems      array                     문제 메타 (title, question, answer, …)
+  codes         string[]                  문제별 제출 코드
+  code          string                    대표 코드 1개
+  mode          string?                   'PRACTICE' 이면 목록에서 제외
+
+[B.5 LobbyUser]  types/lobby.ts — 로비 유저 목록 (현재 mock)
+
+  name          string                    getCurrentUserName() (로그인 유저)
+  rank          string                    티어 문자열 (현재 '-')
+  title         string | null             장착 칭호 id
+
+[B.6 RoomFilterState]  types/roomFilter.ts
+
+  playerModes   string[]
+  difficulties  string[]
+  languages     string[]
+  problemCounts string[]
+  gameModes     GameMode[]
+  visibility    ('public' | 'private')[]
+
+[B.7 RoomPlayer]  types/room.ts — 대기실 슬롯
+
+  id            number
+  name          string
+  isHost        boolean
+  isReady       boolean
+  language      string                    표시용 (예: ☕)
+  character     string                    이모지/char id
+  status        string                    HOST | READY | WAITING
+
+[B.8 RoomChatMessage]  types/room.ts
+
+  type          'sys' | 'user'
+  text          string
+  name          string?                   user 일 때만
+
+[B.9 RoomSettings]  types/room.ts — 대기실 표시용 (URL에서 유도)
+
+  time          string
+  diff          string                    EASY | NORMAL | HARD
+  theme         string                    예: 'ALGORITHM: DP'
+  count         string                    문제 수
+  maxPlayers    number                    2~8
+
+[B.10 BattleProblem]  types/battle.ts
+
+  id            string?
+  type          string                    fill_blank | multiple_choice | short_answer | …
+  difficulty    string?                   easy | medium | hard
+  title         string?
+  question      string?
+  answer        Record<lang, string[]>?   언어별 정답 배열
+  options       string[] | null           객관식 선택지
+  correctIndex  number | null             객관식 정답 index
+  explanation   string?
+  description   string?
+  input         string?
+  output        string?
+  visual        ProblemVisual | null
+  capabilityOverrides Partial<Record<ItemKey, boolean>>?  문제별 아이템 정책 예외
+
+[B.11 ProblemVisual]  types/battle.ts
+
+  kind          'ascii' | 'html' | 'css' | 'svg' | 'canvas' | 'image'
+  content       string?
+  previewHtml   string?
+  previewCss    string?
+  caption       string?
+  imageFile     string?                   public/assets/problem-images/ 내 파일명
+
+[B.12 ItemInventory]  types/battle.ts / itemTypes.ts
+
+  paint           number
+  revealLength    number
+  revealPrev      number
+  lightning       number
+  timeReduce      number
+  scribble        number
+  blankBreak      number
+  buildCharge     number
+  (초기값 전 필드 0)
+
+[B.13 RoomUser]  types/battle.ts — 배틀 중·결과 순위
+
+  id              string                    'me' 또는 bot id
+  name            string
+  avatar          string
+  problem         number                    현재 문제 번호 (1-based)
+  solvedCount     number
+  solvedProblems  number[]                  푼 문제 index[]
+  ingameScore     number
+  totalSolveTime  number
+  completionTime  number?
+  finishedAtElapsed number?
+  status          string?                   thinking | solved | observing
+  problemResults  boolean[]?                문제별 정오
+
+[B.14 TitleData / TitleStats]  constants/titleTypes.ts
+
+  TitleData
+    owned       string[]                  보유 칭호 id 목록
+    equipped    string | null             장착 칭호 id
+    stats       TitleStats
+
+  TitleStats
+    totalWins         number
+    consecutiveWins   number
+    totalGames        number
+    perfectGame       boolean
+    avgSpeed          number
+    langWins          Record<string, number>   예: { JAVA: 3 }
+
+  TitleDef (칭호 마스터, id만 owned에 저장)
+    id, name, desc, icon, rarity, check(stats)
+
+[B.15 AudioSettings]  types/audioSettings.ts
+
+  lobbyMusic    boolean
+  battleMusic   boolean
+
+[B.16 DisplayMode]  types/electron.d.ts
+
+  'window' | 'fullscreen'
+
+[B.17 DemoBot]  utils/battle/demoBots.ts — 배틀 상대 시뮬
+
+  id, name, avatar, style, tag
+  skill, score
+  solvedProblems      number[]
+  codeByProblem         string[]
+  status                string
+  solveAtRemaining      Record<problemIndex, number>
+  solveScheduleByProblem number[]?
+  blankAnswersByProblem  string[][]?
+  scoreBonusByProblem    number[]?
+
+[B.18 ResultPlayer]  utils/resultUtils.ts — 결과 화면 플레이어
+
+  id, name, avatar
+  ingameScore, ratingScore
+  totalSolveTime, completionTime
+  problemResults    boolean[]
+  delta             number                  applyRatingDeltas() 결과
+                                      상위 ceil(n/2) 승: 양수, 하위 패: 음수
+                                      magnitude = max(10, floor(ingameScore/10))
+  rank              number
+
+[B.19 FinalRankingSnapshot]  utils/battle/rankUtils.ts
+
+  sessionId, roomId, finalizedAt (ISO)
+  elapsedSec, roundSeconds, totalProblems
+  players: RankingPlayerSnapshot[]
+    (id, name, avatar, ingameScore, ratingScore, totalSolveTime,
+     completionTime, solvedProblems, problemResults, rank)
+
+[B.20 ReviewInvitePayload]  services/reviewSessionService.ts
+
+  id, sessionId
+  fromUserId, fromUserName, toUserId, toUserName
+  problemIndices    number[]
+  status            'pending'|'accepted'|'rejected'|'cancelled'
+  createdAt         number (ms)
+
+[B.21 PracticeExercise]  utils/practiceUtils.ts
+
+  id, type, difficulty, title, question
+  answer, options, correctIndex, explanation, visual
+  (BattleProblem 과 유사, problems.js 에서 생성)
+
+[B.22 AuthUser]  services/authService.ts
+
+  id            string                    user_… | test_user_1 등
+  username      string                    로그인 아이디 (소문자 정규화)
+  displayName   string                    게임 표시 닉네임
+
+[B.23 ProblemStyle / ProblemCapabilities]  types/battle.ts, utils/problemCapabilities.ts
+
+  ProblemStyle
+    'code' | 'multiple_choice' | 'short_answer'
+    fill_blank, visual_fill_blank → code
+
+  ProblemCapabilities  (resolveProblemCapabilities 결과)
+    style                 ProblemStyle
+    hasVisual             boolean     렌더 가능한 visual 존재 (모든 kind)
+    hasImage              boolean     kind === 'image' + imageFile
+    items                 Record<ItemKey, boolean>   아이템 모드 허용 여부
+    canUseHint            boolean     revealLength | revealPrev
+    canUseAutoSolve       boolean     (현재 미사용 예약)
+    canUseBuildBonus      boolean     buildCharge
+    showCodePanel         boolean     style === 'code'
+    showMultipleChoicePanel boolean
+    showShortAnswerPanel  boolean
+
+[B.24 FriendEntry / FriendPresence]  types/friend.ts, services/friendStore.ts
+
+  FriendEntry
+    name          string                    친구 닉네임
+    addedAt       number (ms)
+
+  FriendPresence
+    userName      string
+    status        'lobby' | 'room' | 'offline'
+    roomId        string?                   status='room' 일 때
+    roomTitle     string?
+    roomQuery     string?                   /room follow 이동용 query
+    updatedAt     number (ms)
+
+
+================================================================================
+ C. URL 쿼리 파라미터 (화면 간 전달)
+================================================================================
+
+[C.1 /room]  roomService.buildRoomSearchParams
+
+  param         예시              설명
+  ────────────────────────────────────────────────────────────────
+  id            5                 방 ID
+  title         내 방             방 제목
+  mode          1/1 | 1/N         플레이어 모드
+  diff          보통              난이도
+  lang          JAVA              언어
+  pwd           (empty|비번)      private 방
+  count         5                 문제 수
+  maxPlayers    8 | 1             최대 인원 (1/1 생성 시 1)
+  gameMode      item | normal     아이템 모드
+
+[C.2 /battle]
+
+  param         예시              설명
+  ────────────────────────────────────────────────────────────────
+  fresh         1                 1이면 세션 복원 스킵, 새 배틀
+  roomId        5                 sessionId = battle-5
+  lang          java              언어 키
+  mode          1/1               roomMode
+  count         5                 (표시·fallback용, 문제는 store)
+  maxPlayers    2                 최대 인원
+  gameMode      item              item | normal
+
+[C.3 /result]
+
+  param         예시              설명
+  ────────────────────────────────────────────────────────────────
+  roomId        5                 submission/demoState 조회
+
+[C.4 /practice]
+
+  param         예시              설명
+  ────────────────────────────────────────────────────────────────
+  lang          JAVA              언어
+  diff          보통 | mixed       난이도
+  count         10                문제 수 (3~90)
+  type          mixed             문제 유형 필터 (optional)
+
+[C.5 /build]
+  (쿼리 없음 — 독립 빌드 연습 화면)
+
+
+================================================================================
+ D. 화면 간 payload (Room → Battle → Result)
+================================================================================
+
+[D.1 prepareBattleStart] → sessionStore
+
+  battleProblems: BattleProblem[]
+
+  battleSettings:
+    roomId          string
+    lang            string                  myLanguage
+    diff            string                  settingsDiff
+    count           string                  선택된 문제 수
+    maxPlayers      string
+    roomMode        string                  1/1 | 1/N
+    gameMode        GameMode
+    selectedItems   ItemKey[]               item 모드만
+    roomRoster      { id, name, character, isHost }[]
+
+[D.2 persistBattleSubmission] → sessionStore.battleSubmission
+
+  historyId         string
+  roomId            string
+  problems          BattleProblem[]
+  answers           string[]
+  codes             string[]                answers 와 동일
+  code              string                  currentIndex 코드
+  lang              string
+  submittedAt       string                  ISO8601
+  mode              string                  battleMode
+  maxPlayers        string
+  currentIndex      number
+  ingameScore       number
+  solveTimes        Record<number, number>  문제index → 풀이 시간(초)
+  problemResults    boolean[]?
+  blankAnswers      string[][]?             문제별 빈칸/단답 답안
+  selectedOptions   Record<number, number>? 문제별 객관식 index
+  myRatingScore     number
+
+[D.3 setBattleDemoState] (sessionId 키) — ResultPage 도 읽음
+
+  roomId, sessionId, mode, maxPlayers, lang
+  currentIndex, remaining, roundSeconds
+  answers, localSolvedProblems, finishedAtElapsedSec
+  demoSpectating, spectatorLocked
+  battleBots: DemoBot[]
+  ingameScore, solveTimes, problemResults, myRatingScore
+  blankAnswers, selectedOptions
+  updatedAt         ISO8601
+
+[D.4 setBattleDraft] (sessionId 키) — 배틀 중 이어하기
+
+  roomId, sessionId, lang
+  currentIndex, remaining
+  answers, problems, snapshot
+  updatedAt
+
+[D.5 ResultPage 마운트 시 userService 갱신]
+
+  addGold(floor(myScore / 10))
+  saveTitles (stats: totalGames, totalWins, consecutiveWins, langWins, perfectGame)
+  persistCodeHistory (CodeHistoryEntry, PRACTICE 제외, 최대 50건)
+
+
+================================================================================
+ E. 페이지별 변수 (도메인 / UI 구분)
+================================================================================
+
+── E.0 LoginPage  src/pages/login/LoginPage.tsx ───────────────────────────────
+
+  [UI]
+  mode            'login' | 'signup'        UI      탭 전환
+  username        string                    UI      아이디 (가입 시 소문자·숫자·_)
+  password        string                    UI      4자 이상
+  displayName     string                    UI      회원가입 시만 (닉네임, max 20)
+  error           string                    UI      authService 오류 메시지
+
+  [도메인 — AuthContext 경유]
+  login(username, password)           → authService.login
+  signup(username, password, displayName?) → authService.signup
+  성공 시 navigate(ROUTES.LOBBY)
+
+── E.1 LobbyPage  src/pages/lobby/LobbyPage.tsx ─────────────────────────────
+
+  [도메인]
+  변수              타입              저장        설명
+  rooms             Room[]            STORE+UI    DEFAULT_ROOMS([])+roomStore
+  roomFilter        RoomFilterState   UI          방 필터
+  gold              number            STORE+UI    userService 동기화
+  itemInventory     ItemInventory     STORE+UI
+  titleData         TitleData         STORE+UI
+  codeHistory       CodeHistoryEntry[] STORE+UI
+  users             LobbyUser[]       UI          로그인 유저 1명 (getCurrentUserName)
+  chatMessages      ChatMessage[]     UI          서버 미연동
+  displayMode       DisplayMode       STORE+UI
+  audioSettings     AudioSettings     STORE+UI
+
+  [방 생성 폼 — createRoom 입력]
+  playerMode, gameMode, roomTitle, difficulty, language
+  roomVisibility, roomPwd, problemCount
+
+  [연습 모달 입력]
+  practiceLang, practiceDiff, practiceCount
+
+  [UI 전용 —]
+  showModal, showPracticeModal, showRoomFilterModal, showCodeModal
+  showTitleModal, showRoulette, showSettingsModal, showExitModal
+  modalShake, activeTab, currentPage
+  chatMsg, chatMode
+  selectedHistoryIndex, selectedHistoryProblemIndex, selectedHistoryIds
+  rouletteSpinning, rouletteResult, wheelDeg
+
+── E.2 RoomPage  src/pages/room/RoomPage.tsx ───────────────────────────────
+
+  [URL에서 읽음 — 재진입 시 소스]
+  roomId, roomTitleFromUrl, roomPwd, roomMode, gameMode
+  urlLang→initialLang, urlDiff→initialDiff, urlCount, urlMaxPlayers
+
+  [도메인]
+  players           (RoomPlayer|null)[]  UI      호스트+빈 슬롯 8칸
+  settings          RoomSettings         UI      URL 기반 고정
+  myLanguage        string               UI
+  myCharacter       string               UI      char1~char4
+  selectedItems     Set<ItemKey>         UI      item 모드 로드아웃
+  itemInventory     ItemInventory        STORE   읽기 전용
+  messages          RoomChatMessage[]    UI
+  kickedCount       number               STORE   roomStore 연동
+
+  [UI 전용 —]
+  isReady, autoReady (미연결)
+  showProfileModal, profilePlayer, profilePlayerIndex
+  showKickModal, kickTarget, showAlertModal, alertMessage
+  showProblemModal, selectedProblem (미사용)
+  chatMsg, chatMode
+
+── E.3 BattlePage  src/pages/battle/BattlePage.tsx ────────────────────────
+
+  [URL + store]
+  freshStart, roomId, roomMode, gameMode, lang, maxPlayersParam
+  battleMeta        object               STORE   getBattleSettings()
+  currentCaps       ProblemCapabilities  UI      resolveProblemCapabilities(currentProblem, { gameMode })
+
+  [도메인 — 게임 진행]
+  problems          BattleProblem[]      STORE+UI
+  currentIndex      number               UI
+  answers           string[]             UI→draft
+  blankAnswers      string[][]           UI
+  remaining         number               UI      제한 시간(초)
+  elapsedSec        number               UI
+  localSolvedProblems number[]           UI
+  ingameScore       number               UI→submission   정답당 +BATTLE_CORRECT_SCORE(100)
+  solveTimes        Record<number,number> UI
+  problemResults    Record<number,bool>  UI
+  finishedAtElapsedSec number            UI
+  battleBots        DemoBot[]            UI→demoState
+  itemInventory     ItemInventory        STORE+UI
+  myRatingScore     number               STORE   읽기
+
+  [빌드 패널 — isCodeBlankBuildProblem 만]
+  showBuildPanel    boolean              derived currentCaps.showCodePanel &&
+                                      isCodeBlankBuildProblem(currentProblem)
+  buildCodeByProblem, buildLogsByProblem
+  buildsUsedByProblem, buildBonusByProblem, isBuilding
+
+  [상대·관전]
+  spectatorViewProblemByBot  Record<botId, problemIndex>  UI  관전 시 상대 문제 탭
+  spectatorMyViewProblem     number | null                UI  관전 시 내 코드 문제 탭
+  opponentEffects            Record<botId, Record<problemIndex, panelEffect>>
+  panelHit, expandedOpponentId, showItemModal
+  chatMessages, chatMsg, chatMode
+  sessionSavedSnapshot, saveStatus
+  (+ UI 전용: showGameOver, showSaveModal, showClearFlash, battleFinished,
+     demoSpectating, spectatorLocked, problemCollapsed, problemSolved,
+     selectedOption, revealHint, breakingBlanks, itemCastState, showAnswerRequiredModal)
+  (+ 다수 useRef: 타이머·debounce·플래그)
+
+── E.4 ResultPage  src/pages/result/ResultPage.tsx ────────────────────────
+
+  [URL + store — 읽기 위주]
+  roomId            string               URL
+  submission        BattleSubmission     STORE   getBattleSubmission()
+  demoState         object               STORE   getBattleDemoState(sessionId)
+  rankingSnapshot   FinalRankingSnapshot STORE
+  roomUsers         RoomUser[]           STORE
+  allPlayers        ResultPlayer[]       derived buildResultPlayers()
+
+  [도메인 — 결과 처리]
+  totalGold         number               STORE+UI  addGold 후
+  reviewPhase       'idle'|'selecting'|'reviewing'
+  selectedReviewProblems Set<number>
+  reviewPartnerIds  string[]
+  inviteTargetIds   Set<string>           UI      복습 초대 모달 다중 선택
+  problemDetailModal { player, problemIndex } | null
+
+  [UI 전용 —]
+  resultPopup, isAiOpen, chatMessages, chatInput, chatMode
+  aiMessages, aiInput, departedUserIds
+  showInviteModal, inviteTargetId, inviteWaiting, reviewExpanded
+
+── E.5 PracticePage  src/pages/practice/PracticePage.tsx ─────────────────
+
+  (userService / sessionStore 미사용 — 완전 로컬)
+
+  [도메인]
+  lang, diff, type, count               UI      설정
+  exercises       PracticeExercise[]    UI      problems.js 풀
+  currentIndex    number                UI
+  checked         Set<number>           UI      채점 완료 index
+  userAnswers     number[]              UI      객관식 선택
+  blankAnswers    string[][]            UI      빈칸/단답
+
+  [UI 전용 —]
+  showSetup
+
+── E.6 BuildPage  src/pages/build/BuildPage.tsx ─────────────────────────
+
+  (sessionStore / userService 미사용)
+
+  lang            'JAVA'|'PYTHON'|…     UI
+  code            string                UI      DEFAULT_TEMPLATE
+  logs            BuildLogLine[]        UI      runBuildSimulation 출력
+  status          'idle'|'building'|'success'|'error'
+
+
+================================================================================
+ F. 상수·enum·고정값
+================================================================================
+
+[F.1 사용자·세션 식별]
+  getCurrentUserId() / getCurrentUserName()   authService (로그인 유저)
+  getCurrentDisplayName()                     authService (닉네임)
+  FRIENDS_KEY                        'rezero_friends'   friendStore 친구 목록 localStorage 키
+  PRESENCE_KEY                       'rezero_presence'  friendStore 접속 상태 localStorage 키
+  DEFAULT_ROOMS                       []        사전 등록 방 없음
+  DEMO_BOT_POOL                       6명       roomConstants (수동 봇 초대용)
+  BOT_READY_DELAY_MS                  3000      봇 입장 후 READY 대기
+  SOLO_START_BYPASS                   false     인원·READY 규칙 적용
+  seedDemoFriendPresence()                     테스트유저1(room), 테스트유저2(lobby) 초기화
+
+[F.2 아이템·배틀 점수]
+  ROULETTE_COST                       1000 G
+  BATTLE_CORRECT_SCORE                100   constants/battleConstants.ts
+                                      정답 1문제당 인게임 점수 = 골드 보상 1:1
+  BATTLE_BUILD_LIMIT                  3
+  BATTLE_BUILD_ITEM_BONUS             3
+  ItemKey                             paint | revealLength | revealPrev |
+                                      lightning | timeReduce | scribble |
+                                      blankBreak | buildCharge
+
+[F.3 문제]
+  problems.js                         정적 문제 은행 (id, type, difficulty,
+                                      title, question, answer, options, …)
+  problem type                        fill_blank | multiple_choice |
+                                      short_answer | visual_fill_blank
+  isCodeBlankBuildProblem()           utils/problemTypeUtils.ts
+                                      실제 코드 작성 문제만 빌드 패널 대상
+  getProblemAnswersForLang()          utils/problemTypeUtils.ts
+                                      JAVA|PYTHON|CPP|HTML|CSS fallback
+
+[F.4 언어·난이도 매핑]  roomConstants.ts
+  LANG_MAP        JAVA→java, PYTHON→python, C++→cpp, …
+  DIFF_MAP        쉬움→EASY, 보통→NORMAL, 어려움→HARD
+  DIFF_TO_KOREAN  역매핑
+
+[F.5 캐릭터]  CHARACTERS
+  char1 검사, char2 마법사, char3 닌자, char4 로봇
+
+[F.6 결과·리뷰]
+  ENABLE_RESULT_BOT_DEPARTURE          false
+  REVIEW_BOT_ACCEPT_DELAY_MS          10000
+  applyRatingDeltas(players)          resultUtils — 상위 승 +delta, 하위 패 -delta
+  formatCorrectAnswer()               resultAnswerUtils — getProblemAnswersForLang fallback
+  getBotSpectatorAnswers()            demoBots — 관전 시 봇 답안 (문제 데이터 fallback)
+
+[F.7 인증]
+  ROUTES.LOGIN                        '/login'
+  ACCOUNTS_KEY                        'rezero_auth_accounts'
+  signup 규칙                         아이디 3자+, 영문소문자·숫자·_, 비번 4자+
+
+[F.8 문제 visual · capabilities]
+  PROBLEM_IMAGES_DIR                  assets/problem-images
+  PROBLEM_IMAGES_BASE_URL             ./assets/problem-images/
+  STYLE_ITEM_POLICY                   problemCapabilityPolicy.ts
+  resolveProblemCapabilities()        utils/problemCapabilities.ts
+  hasRenderableVisual()               utils/problemVisualUtils.ts
+
+
+================================================================================
+ G. 인증 (Auth) — 변수·흐름 요약
+================================================================================
+
+  [계정 종류]
+    1) 내장 테스트 계정 — testuser1, testuser2 (화면에 노출하지 않음, 수동 입력)
+    2) 개인 회원가입 계정 — [회원가입] 탭에서 아이디·비밀번호·닉네임 입력 후
+       localStorage 에 저장, 이후 [로그인] 탭으로 동일 아이디로 로그인 가능
+
+  [세션]
+    로그인 성공 → currentUser (메모리)
+    앱 종료·재실행 → currentUser = null → /login
+    계정 데이터(rezero_auth_accounts)는 localStorage 에 유지
+
+  [AuthContext]  contexts/AuthContext.tsx
+    user, isAuthenticated, login(), signup(), logout()
+    initAuth() — 앱 시작 시 계정 로드, 레거시 세션 키 삭제
+
+  [라우트 가드]
+    ProtectedRoute  … 미인증 → /login
+    GuestRoute      … 인증됨 → / (로비)
+
+
+================================================================================
+ H. 문제 capabilities · visual 자산
+================================================================================
+
+  [원칙]
+    문제 JSON: type, visual, capabilityOverrides 만 저장
+    UI·배틀 로직: resolveProblemCapabilities() 결과(currentCaps)만 참조
+
+  [동작 방식]  (플래그처럼 쓰지만 JSON에 직접 저장하지 않음)
+    problems.js 에 hasVisual·canUseHint 같은 boolean 을 문제마다 박아 두지 않는다.
+    저장 필드는 type, visual, capabilityOverrides(선택) 뿐이다.
+
+    현재 문제가 바뀔 때마다 아래 파이프라인으로 currentCaps 를 계산한다.
+
+      type + visual + capabilityOverrides + gameMode
+              ↓
+      resolveProblemCapabilities()     … problemCapabilities.ts
+              ↓
+      currentCaps (ProblemCapabilities)   … boolean 플래그 묶음
+
+    BattlePage·PracticeProblemViewer 는 currentCaps 만 보고 UI·아이템을 분기한다.
+      패널 표시     showCodePanel | showMultipleChoicePanel | showShortAnswerPanel
+      보기 렌더     hasVisual || hasImage
+      아이템 사용   canUseItem(currentCaps, itemKey)  →  items[itemKey] true/false
+      힌트·빌드+    canUseHint, canUseBuildBonus (items 에서 파생)
+
+    capabilityOverrides 가 있으면 STYLE_ITEM_POLICY 를 해당 문제만 일부 덮어쓴다.
+    gameMode === 'normal' 이면 items 전 필드를 false 로 만든 뒤 위 플래그에 반영된다.
+
+  [스타일 → type 매핑]
+    code              ← fill_blank, visual_fill_blank
+    short_answer      ← short_answer
+    multiple_choice   ← multiple_choice
+
+  [아이템 정책 — item 모드, STYLE_ITEM_POLICY]
+    code            revealLength, revealPrev, blankBreak, buildCharge + 공격 전부
+    short_answer    revealLength, revealPrev + 공격 전부 (blankBreak·buildCharge 불가)
+    multiple_choice 자기 버프 전부 불가, 공격 아이템만 허용
+    normal 모드     items 전 필드 false
+
+  [visual 렌더]
+    shouldRenderVisual = hasVisual || hasImage
+    hasImage = visual.kind === 'image' && imageFile 존재
+    image 경로: ./assets/problem-images/{imageFile}
+    html/css/ascii/svg/canvas — previewHtml·previewCss·content 인라인 (problems.js)
+
+  [관련 파일]
+    constants/problemCapabilityPolicy.ts
+    constants/battleConstants.ts
+    constants/problemImages.ts
+    utils/problemCapabilities.ts
+    utils/problemTypeUtils.ts
+    utils/problemVisualUtils.ts
+    utils/resultAnswerUtils.ts
+    components/battle/ProblemVisualPreview.tsx
+    components/battle/OpponentPanels.tsx
+    components/result/ResultProblemModal/ResultProblemModal.tsx
+
+
+================================================================================
+ 부록: 백엔드 연동 시 우선 매핑 후보
+================================================================================
+
+  프론트 (현재)              →  백엔드 개념 (제안)
+  ─────────────────────────────────────────────────────────────
+  authService (accounts)     →  users 테이블, POST /auth/login|signup
+  currentUser (메모리)       →  JWT / 세션 쿠키 (서버 검증)
+  userService.gold           →  user.gold / wallet
+  userService.itemInventory  →  user_items
+  userService.titleData      →  user_titles, title_stats
+  userService.codeHistory    →  match_code_history
+  userService.ratingScore    →  user.rating
+  roomStore.dynamicRooms     →  rooms 테이블
+  sessionStore.battle*       →  match_session, match_submission
+  Room / RoomPlayer          →  room, room_participant
+  BattleProblem              →  problem (또는 problems.js → CMS)
+  CodeHistoryEntry           →  post_match_history
+
+  UI 전용 state (showModal, wheelDeg, …) → API 불필요
+
+================================================================================
+ 문서 갱신
+================================================================================
+
+  코드 기준: re:zero frontend (메모리 store 구조)
+  companion: frontend/front.txt (화면·컴포넌트 가이드)
+  타입 정의 변경 시 types/*.ts 와 이 파일을 함께 갱신할 것.
+
+  [2026-07-04]
+  - BATTLE_CORRECT_SCORE=100, 골드=ingameScore (÷10 제거)
+  - comboCount 제거, applyRatingDeltas (승 + / 패 -)
+  - isCodeBlankBuildProblem, getProblemAnswersForLang, formatCorrectAnswer
+  - OpponentPanels problem-preview / 관전 답안, opponentEffects 인덱스
+  - ResultProblemModal, ResultPlayerRow 라벨, reviewPartnerIds, inviteTargetIds
+  - 배틀 중 점수·레이팅 UI 미표시, 제출 후 자동 다음 문제
+  - cursors.css 픽셀 커서, useModalShake, Electron preload/windowBridge
+  - persistBattleSubmission: blankAnswers, selectedOptions 필드 추가
+
+  [2026-07-07]
+  - Lobby/Room friendStore 흐름 반영: FRIENDS_KEY, PRESENCE_KEY, FriendPresence 타입
+  - 채팅 mode 라벨에 '[귓속말:{target}]' 추가
+  - room.css 대기실 아이템 슬롯 아이콘 상향(translateY/margin)으로 라벨 겹침 완화
