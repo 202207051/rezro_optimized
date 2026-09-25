@@ -7,15 +7,15 @@
     "node": ">=20",
     "npm": ">=10"
   },
-  "main": "frontend/dist-electron/main.js",
-  "scripts": {
-    "dev": "vite --config frontend/vite.config.ts --host 0.0.0.0 --port 5173",
-    "electron:build": "tsc -p frontend/tsconfig.electron.json && node -e \"require('fs').copyFileSync('frontend/electron/preload.cjs','frontend/dist-electron/preload.cjs')\"",
+  "main": "dist-electron/main.js",
+    "scripts": {
+    "dev": "vite --config vite.config.ts --host 0.0.0.0 --port 5173",
+    "electron:build": "tsc -p tsconfig.electron.json && node -e \"require('fs').copyFileSync('electron/preload.cjs','dist-electron/preload.cjs')\"",
     "electron:dev": "concurrently \"npm run dev\" \"wait-on http://localhost:5173 && npm run electron:build && cross-env NODE_ENV=development electron .\"",
-    "build": "tsc -b frontend/tsconfig.json && vite build --config frontend/vite.config.ts && npm run electron:build",
+    "build": "tsc -b tsconfig.json && vite build --config vite.config.ts && npm run electron:build",
     "start": "electron .",
-    "lint": "eslint frontend",
-    "preview": "vite preview --config frontend/vite.config.ts",
+    "lint": "eslint src",
+    "preview": "vite preview --config vite.config.ts",
     "backend": "node backend/bin/www",
     "backend:dev": "nodemon backend/bin/www",
     "rooms:reset-test": "node backend/scripts/resetTestLobbyRooms.js"
