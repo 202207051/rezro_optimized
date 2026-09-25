@@ -1,7 +1,0 @@
-{
-  "private": true,
-  "type": "module",
-  "scripts": {
-    "preinstall": "node ../scripts/guard-root-install.js"
-  }
-}
